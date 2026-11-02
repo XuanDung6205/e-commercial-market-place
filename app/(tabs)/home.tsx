@@ -1,71 +1,72 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { C, currency, Icon, Page } from '@/src/components/customer/CustomerUI';
 import { supabase } from '@/src/services/supabase';
-import { MOCK_PRODUCTS, useCart } from '@/src/store/marketplaceStore';
+import { useCart } from '@/src/store/marketplaceStore';
 
 type Category = { id: string; name: string };
 type Product = { id: string; name: string; price: number; product_images?: { image_url: string }[] };
 type Banner = { title: string; image_url: string };
 
-const FALLBACK_CATEGORIES: Category[] = [
-  { id: 'cat-1', name: 'Thời trang' },
-  { id: 'cat-2', name: 'Điện tử' },
-  { id: 'cat-3', name: 'Thực phẩm' },
-  { id: 'cat-4', name: 'Nhà cửa' },
-  { id: 'cat-5', name: 'Làm đẹp' },
-];
-
 export default function HomeScreen() {
   const { totalQuantity } = useCart();
-  const [categories, setCategories] = useState<Category[]>(FALLBACK_CATEGORIES);
-  const [products, setProducts] = useState<Product[]>(
-    MOCK_PRODUCTS.map((p) => ({
-      id: p.id,
-      name: p.name,
-      price: p.price,
-      product_images: [{ image_url: p.image }],
-    }))
-  );
-  const [banner, setBanner] = useState<Banner | null>({
-    title: 'Siêu hội mua sắm Chợ Mây',
-    image_url:
-      'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?auto=format&fit=crop&w=1200&q=80',
-  });
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState('');
+  const [homeError, setHomeError] = useState('');
+  const [banner, setBanner] = useState<Banner | null>(null);
   const [name, setName] = useState('');
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       try {
-        const [
-          { data: categoryRows },
-          { data: productRows },
-          { data: bannerRows },
-          { data: { user } },
-        ] = await Promise.all([
+        const [categoryResult, productResult, bannerResult, userResult] = await Promise.all([
           supabase.from('categories').select('id, name').eq('is_active', true).order('sort_order').limit(10),
           supabase.from('products').select('id, name, price, product_images(image_url)').eq('status', 'active').order('created_at', { ascending: false }).limit(10),
           supabase.from('banners').select('title, image_url').eq('is_active', true).order('sort_order').limit(1),
-          supabase.auth.getUser(),
+          supabase.auth.getSession(),
         ]);
 
         let displayName = '';
-        if (user) {
-          const { data } = await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle();
-          displayName = data?.full_name?.split(' ')[0] ?? '';
+        if (userResult.data.session?.user) {
+          const { data, error } = await supabase.from('profiles')
+            .select('full_name')
+            .eq('id', userResult.data.session.user.id)
+            .maybeSingle();
+          if (!error) displayName = data?.full_name?.split(' ')[0] ?? '';
         }
 
         if (!active) return;
-        if (categoryRows && categoryRows.length > 0) setCategories(categoryRows as Category[]);
-        if (productRows && productRows.length > 0) {
-          setProducts(productRows as Product[]);
+        if (categoryResult.error) {
+          setHomeError(categoryResult.error.message);
+          setCategories([]);
+        } else {
+          setCategories((categoryResult.data ?? []) as Category[]);
         }
-        if (bannerRows && bannerRows.length > 0) setBanner(bannerRows[0] as Banner);
+        if (productResult.error) {
+          setProductsError(productResult.error.message);
+          setProducts([]);
+        } else {
+          setProducts((productResult.data ?? []) as Product[]);
+        }
+        if (bannerResult.error) {
+          setHomeError((current) => current || bannerResult.error.message);
+          setBanner(null);
+        } else {
+          setBanner(bannerResult.data?.[0] as Banner | undefined ?? null);
+        }
+        if (userResult.error) setHomeError((current) => current || userResult.error.message);
         if (displayName) setName(displayName);
-      } catch {
-        // use fallback mock data
+      } catch (error) {
+        if (active) {
+          setProductsError(error instanceof Error ? error.message : 'Không thể tải dữ liệu từ Supabase.');
+          setProducts([]);
+        }
+      } finally {
+        if (active) setProductsLoading(false);
       }
     };
     void load();
@@ -122,6 +123,7 @@ export default function HomeScreen() {
           <View style={styles.heroDot} />
         </View>
       </Pressable>
+      {homeError ? <Text style={styles.hint}>{homeError}</Text> : null}
 
       <View style={styles.sectionHead}>
         <Text style={styles.sectionTitle}>Danh mục</Text>
@@ -155,7 +157,17 @@ export default function HomeScreen() {
           <Text style={styles.seeAll}>Xem tất cả</Text>
         </Pressable>
       </View>
-      {products.length ? (
+      {productsLoading ? (
+        <View style={styles.empty}>
+          <ActivityIndicator color={C.cyan} />
+          <Text style={styles.hint}>Đang tải sản phẩm từ Supabase...</Text>
+        </View>
+      ) : productsError ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyTitle}>Không thể tải sản phẩm</Text>
+          <Text style={styles.hint}>{productsError}</Text>
+        </View>
+      ) : products.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productRow}>
           {products.map((item) => (
             <Pressable
@@ -184,7 +196,7 @@ export default function HomeScreen() {
       ) : (
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>Chưa có sản phẩm</Text>
-          <Text style={styles.hint}>Sản phẩm đang được cập nhật. Bạn có thể tìm lại sau.</Text>
+          <Text style={styles.hint}>Chưa có sản phẩm đang hoạt động trong Supabase.</Text>
         </View>
       )}
       <View style={styles.bottomSpace} />

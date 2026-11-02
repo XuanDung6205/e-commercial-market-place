@@ -1,83 +1,16 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { CartItem, Order, Product, Review } from '@/src/types/models';
-
-export const MOCK_PRODUCTS: Product[] = [
-  {
-    id: 'prod-1',
-    name: 'Dâu tây Đà Lạt',
-    price: 85000,
-    compareAtPrice: 105000,
-    rating: 4.9,
-    reviewCount: 128,
-    tag: 'Mua 1 tặng 1',
-    image: 'https://images.unsplash.com/photo-1464965911861-746a04b4bca6?auto=format&fit=crop&w=600&q=80',
-    description: 'Dâu tây Đà Lạt chín mọng, vị ngọt thanh tự nhiên xen lẫn chút chua nhẹ đặc trưng, hái tươi mỗi sáng tại vườn nông trại sạch.',
-    stock: 45,
-  },
-  {
-    id: 'prod-2',
-    name: 'Bơ sáp Đắk Lắk',
-    price: 45000,
-    compareAtPrice: 60000,
-    rating: 4.8,
-    reviewCount: 96,
-    image: 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?auto=format&fit=crop&w=600&q=80',
-    description: 'Bơ sáp chuẩn gốc Đắk Lắk, quả già cơm dẻo quánh, màu vàng ươm, béo ngậy tự nhiên, bổ dưỡng cho cả gia đình.',
-    stock: 30,
-  },
-  {
-    id: 'prod-3',
-    name: 'Cam vàng mọng nước',
-    price: 59000,
-    compareAtPrice: 75000,
-    rating: 4.9,
-    reviewCount: 84,
-    image: 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?auto=format&fit=crop&w=600&q=80',
-    description: 'Cam vàng nhập khẩu mọng nước, vỏ mỏng thơm ngát, vị ngọt thanh mát, giàu vitamin C giúp tăng sức đề kháng.',
-    stock: 50,
-  },
-  {
-    id: 'prod-4',
-    name: 'Tai nghe không dây Air',
-    price: 890000,
-    compareAtPrice: 1050000,
-    rating: 4.8,
-    reviewCount: 215,
-    tag: 'Giảm 15%',
-    variant: 'Màu trắng',
-    image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
-    description: 'Tai nghe Bluetooth thiết kế công thái học cao cấp, âm bass mạnh mẽ, chống ồn chủ động ANC và pin liên tục đến 30 giờ.',
-    stock: 18,
-  },
-  {
-    id: 'prod-5',
-    name: 'Bình giữ nhiệt Daily 500ml',
-    price: 219000,
-    compareAtPrice: 269000,
-    rating: 4.7,
-    reviewCount: 52,
-    image: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=600&q=80',
-    description: 'Bình giữ nhiệt thép không gỉ 304 cao cấp 2 lớp chân không, giữ nóng 12h và giữ lạnh đến 24h, an toàn cho sức khỏe.',
-    stock: 25,
-  },
-  {
-    id: 'prod-6',
-    name: 'Áo thun Cotton Basic',
-    price: 189000,
-    compareAtPrice: 229000,
-    rating: 4.9,
-    reviewCount: 140,
-    tag: 'Mua 1 tặng 1',
-    variant: 'Trắng / Size L',
-    image: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=600&q=80',
-    description: 'Áo thun phong cách basic chất liệu 100% cotton co giãn 4 chiều mềm mịn, thấm hút mồ hôi tối đa, dễ phối đồ.',
-    stock: 60,
-  },
-];
+import { ProductService } from '@/src/services/product.service';
+import { supabase } from '@/src/services/supabase';
 
 type StoreState = {
   cart: CartItem[];
   favoriteIds: string[];
+  favorites: Product[];
+  cartLoading: boolean;
+  favoritesLoading: boolean;
+  cartError: string | null;
+  favoritesError: string | null;
   orders: Order[];
   reviews: Review[];
   voucherCode: string;
@@ -85,246 +18,226 @@ type StoreState = {
 };
 
 const INITIAL_STATE: StoreState = {
-  cart: [
-    {
-      id: 'cart-1',
-      product: MOCK_PRODUCTS[0], // Dâu tây Đà Lạt
-      quantity: 2,
-      variant: 'Hộp 500g',
-      selected: true,
-    },
-    {
-      id: 'cart-2',
-      product: MOCK_PRODUCTS[3], // Tai nghe không dây Air
-      quantity: 1,
-      variant: 'Màu trắng',
-      selected: true,
-    },
-  ],
-  favoriteIds: ['prod-1', 'prod-2', 'prod-3', 'prod-4'],
-  orders: [
-    {
-      id: 'ord-2026',
-      orderNumber: '2026',
-      date: '25/10/2026',
-      time: '09:15',
-      status: 'pending',
-      items: [
-        {
-          id: 'item-2026-1',
-          productId: 'prod-4',
-          productName: 'Tai nghe không dây Air',
-          variant: 'Màu trắng',
-          quantity: 1,
-          price: 890000,
-          image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
-        },
-      ],
-      subtotal: 890000,
-      tax: 89000,
-      shippingFee: 25000,
-      discount: 0,
-      total: 1004000,
-      recipientName: 'Nguyễn Minh Anh',
-      phone: '0912 345 678',
-      address: '25 Nguyễn Thị Minh Khai, P. Bến Nghé, Quận 1, TP. Hồ Chí Minh',
-      paymentMethod: 'cod',
-      isPaid: false,
-    },
-    {
-      id: 'ord-2024',
-      orderNumber: '2024',
-      date: '24/10/2026',
-      status: 'shipped',
-      items: [
-        {
-          id: 'item-2024-1',
-          productId: 'prod-1',
-          productName: 'Dâu tây Đà Lạt',
-          variant: 'Hộp 500g',
-          quantity: 2,
-          price: 85000,
-          image: 'https://images.unsplash.com/photo-1464965911861-746a04b4bca6?auto=format&fit=crop&w=600&q=80',
-        },
-        {
-          id: 'item-2024-2',
-          productId: 'prod-2',
-          productName: 'Bơ sáp Đắk Lắk',
-          variant: '1 kg',
-          quantity: 1,
-          price: 45000,
-          image: 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?auto=format&fit=crop&w=600&q=80',
-        },
-      ],
-      subtotal: 215000,
-      tax: 0,
-      shippingFee: 17900,
-      discount: 0,
-      total: 232900,
-      recipientName: 'Nguyễn Minh Anh',
-      phone: '0912 345 678',
-      address: '25 Nguyễn Thị Minh Khai, P. Bến Nghé, Quận 1, TP. Hồ Chí Minh',
-      paymentMethod: 'cod',
-      isPaid: false,
-    },
-    {
-      id: 'ord-2025',
-      orderNumber: '2025',
-      date: '23/10/2026',
-      receivedTime: '14:30 · 24/10/2026',
-      status: 'delivered',
-      items: [
-        {
-          id: 'item-2025-1',
-          productId: 'prod-4',
-          productName: 'Tai nghe không dây Air',
-          variant: 'Màu trắng',
-          quantity: 1,
-          price: 890000,
-          image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
-        },
-      ],
-      subtotal: 890000,
-      tax: 89000,
-      shippingFee: 25000,
-      discount: 0,
-      total: 1004000,
-      recipientName: 'Nguyễn Minh Anh',
-      phone: '0912 345 678',
-      address: '25 Nguyễn Thị Minh Khai, P. Bến Nghé, Quận 1, TP. Hồ Chí Minh',
-      paymentMethod: 'cod',
-      isPaid: true,
-    },
-    {
-      id: 'ord-2023',
-      orderNumber: '2023',
-      date: '22/10/2026',
-      status: 'cancelled',
-      items: [
-        {
-          id: 'item-2023-1',
-          productId: 'prod-1',
-          productName: 'Dâu tây Đà Lạt',
-          variant: 'Hộp 500g',
-          quantity: 2,
-          price: 85000,
-          image: 'https://images.unsplash.com/photo-1464965911861-746a04b4bca6?auto=format&fit=crop&w=600&q=80',
-        },
-        {
-          id: 'item-2023-2',
-          productId: 'prod-3',
-          productName: 'Cam vàng mọng nước',
-          variant: '1 kg',
-          quantity: 1,
-          price: 59000,
-          image: 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?auto=format&fit=crop&w=600&q=80',
-        },
-      ],
-      subtotal: 229000,
-      tax: 0,
-      shippingFee: 3900,
-      discount: 0,
-      total: 232900,
-      recipientName: 'Nguyễn Minh Anh',
-      phone: '0912 345 678',
-      address: '25 Nguyễn Thị Minh Khai, P. Bến Nghé, Quận 1, TP. Hồ Chí Minh',
-      paymentMethod: 'cod',
-      isPaid: false,
-    },
-  ],
-  reviews: [
-    {
-      id: 'rev-1',
-      productId: 'prod-4',
-      productName: 'Tai nghe không dây Air',
-      userName: 'Trần Hoàng Long',
-      userAvatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
-      rating: 5,
-      isVerifiedBuyer: true,
-      createdAt: '28/10/2026',
-      comment: 'Tai nghe đeo rất êm tai, âm bass sâu và cách âm cực kỳ tốt. Pin dùng cả tuần chưa cần sạc lại. Đóng gói rất cẩn thận, shipper giao nhanh!',
-      tags: ['Chất lượng tuyệt vời', 'Giao hàng nhanh'],
-      images: [
-        'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=500&q=80',
-        'https://images.unsplash.com/photo-1484704849700-f032a568e944?auto=format&fit=crop&w=500&q=80',
-      ],
-    },
-    {
-      id: 'rev-2',
-      productId: 'prod-4',
-      productName: 'Tai nghe không dây Air',
-      userName: 'Nguyễn Minh Trang',
-      userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80',
-      rating: 5,
-      isVerifiedBuyer: true,
-      createdAt: '26/10/2026',
-      comment: 'Sản phẩm đúng như mô tả, kết nối Bluetooth với iPhone và MacBook đều rất nhanh, không bị delay khi xem phim. 10/10 sẽ ủng hộ shop tiếp!',
-      tags: ['Đúng với mô tả', 'Đóng gói cẩn thận'],
-    },
-    {
-      id: 'rev-3',
-      productId: 'prod-4',
-      productName: 'Tai nghe không dây Air',
-      userName: 'Phạm Quốc Huy',
-      userAvatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=200&q=80',
-      rating: 4,
-      isVerifiedBuyer: true,
-      createdAt: '20/10/2026',
-      comment: 'Chất lượng âm thanh ổn áp trong tầm giá. Màu trắng nhìn rất sang trọng. Điểm trừ nhẹ là hộp sạc hơi dễ bám vân tay chút.',
-      tags: ['Giá cả hợp lý'],
-      images: [
-        'https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=500&q=80',
-      ],
-    },
-    {
-      id: 'rev-4',
-      productId: 'prod-4',
-      productName: 'Tai nghe không dây Air',
-      userName: 'Lê Thu Thảo',
-      userAvatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=200&q=80',
-      rating: 5,
-      isVerifiedBuyer: true,
-      createdAt: '15/10/2026',
-      comment: 'Đeo cả ngày đi làm không bị đau tai, micro đàm thoại rõ ràng ngay cả khi ngoài đường. Rất ưng ý!',
-      tags: ['Chất lượng tuyệt vời'],
-    },
-    {
-      id: 'rev-5',
-      productId: 'prod-1',
-      productName: 'Dâu tây Đà Lạt',
-      userName: 'Đặng Ngọc Ánh',
-      userAvatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&q=80',
-      rating: 5,
-      isVerifiedBuyer: true,
-      createdAt: '27/10/2026',
-      comment: 'Dâu to tròn mọng nước, ăn ngọt thanh thơm lừng. Giao tới nơi còn nguyên vẹn không bị dập trái nào. Sẽ mua lại!',
-      tags: ['Chất lượng tuyệt vời', 'Giao hàng nhanh'],
-      images: [
-        'https://images.unsplash.com/photo-1464965911861-746a04b4bca6?auto=format&fit=crop&w=500&q=80',
-      ],
-    },
-    {
-      id: 'rev-6',
-      productId: 'prod-1',
-      productName: 'Dâu tây Đà Lạt',
-      userName: 'Bùi Hải Yến',
-      userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-      rating: 5,
-      isVerifiedBuyer: true,
-      createdAt: '24/10/2026',
-      comment: 'Mua đợt khuyến mãi mua 1 tặng 1 siêu hời, dâu rất tươi ngon!',
-      tags: ['Giá cả hợp lý'],
-    },
-  ],
+  cart: [],
+  favoriteIds: [],
+  favorites: [],
+  cartLoading: true,
+  favoritesLoading: true,
+  cartError: null,
+  favoritesError: null,
+  orders: [],
+  reviews: [],
   voucherCode: '',
   discountRate: 0,
 };
 
 let state: StoreState = INITIAL_STATE;
 const listeners = new Set<() => void>();
+let authSyncStarted = false;
+let loadedUserId: string | null | undefined;
+let pendingUserId: string | null | undefined;
+let pendingSync: Promise<void> | null = null;
+let syncVersion = 0;
 
 function notify() {
   listeners.forEach((listener) => listener());
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Đã xảy ra lỗi khi đồng bộ dữ liệu.';
+}
+
+async function getCartItems(userId: string): Promise<CartItem[]> {
+  const { data: cart, error: cartError } = await supabase
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (cartError) throw new Error(cartError.message);
+  if (!cart) return [];
+
+  const { data: rows, error } = await supabase
+    .from('cart_items')
+    .select('id, product_id, quantity, variant_id')
+    .eq('cart_id', cart.id);
+
+  if (error) throw new Error(error.message);
+
+  const products = await ProductService.getByIds([
+    ...new Set((rows ?? []).map((row) => row.product_id)),
+  ]);
+  const productsById = new Map(products.map((product) => [product.id, product]));
+
+  const missingProduct = (rows ?? []).some((row) => !productsById.has(row.product_id));
+  if (missingProduct) {
+    throw new Error('Một sản phẩm trong giỏ hàng không còn hoạt động trên Supabase.');
+  }
+
+  return (rows ?? []).map((row) => {
+    const product = productsById.get(row.product_id);
+    if (!product) throw new Error('Không tìm thấy sản phẩm trong giỏ hàng.');
+    const variant = product.variants?.find((item) => item.id === row.variant_id);
+    const variantLabel = variant
+      ? [variant.color, variant.size].filter(Boolean).join(' / ')
+      : undefined;
+    const cartProduct =
+      variant?.priceOverride === null || variant?.priceOverride === undefined
+        ? product
+        : { ...product, price: variant.priceOverride };
+
+    return {
+      id: row.id,
+      product: cartProduct,
+      quantity: row.quantity,
+      variant: variantLabel,
+      variantId: row.variant_id,
+      selected: true,
+    };
+  });
+}
+
+async function getFavoriteProducts(userId: string): Promise<{ ids: string[]; products: Product[] }> {
+  const { data, error } = await supabase
+    .from('favorites')
+    .select('product_id')
+    .eq('user_id', userId);
+
+  if (error) throw new Error(error.message);
+
+  const ids = (data ?? []).map((favorite) => favorite.product_id);
+  const products = await ProductService.getByIds(ids);
+  if (products.length !== ids.length) {
+    throw new Error('Một sản phẩm yêu thích không còn hoạt động trên Supabase.');
+  }
+  return { ids, products };
+}
+
+async function syncCustomerData(userId: string | null, force = false): Promise<void> {
+  if (!force && loadedUserId === userId && !state.cartLoading && !state.favoritesLoading) return;
+  if (!force && pendingSync && pendingUserId === userId) return pendingSync;
+
+  const requestVersion = ++syncVersion;
+  pendingUserId = userId;
+
+  if (!userId) {
+    loadedUserId = null;
+    pendingSync = null;
+    pendingUserId = undefined;
+    state = {
+      ...state,
+      cart: [],
+      favoriteIds: [],
+      favorites: [],
+      orders: [],
+      reviews: [],
+      voucherCode: '',
+      discountRate: 0,
+      cartLoading: false,
+      favoritesLoading: false,
+      cartError: null,
+      favoritesError: null,
+    };
+    notify();
+    return;
+  }
+
+  state = {
+    ...state,
+    cart: loadedUserId === userId ? state.cart : [],
+    favoriteIds: loadedUserId === userId ? state.favoriteIds : [],
+    favorites: loadedUserId === userId ? state.favorites : [],
+    orders: loadedUserId === userId ? state.orders : [],
+    reviews: loadedUserId === userId ? state.reviews : [],
+    cartLoading: true,
+    favoritesLoading: true,
+    cartError: null,
+    favoritesError: null,
+  };
+  notify();
+
+  const request = Promise.allSettled([
+    getCartItems(userId),
+    getFavoriteProducts(userId),
+  ]).then(([cartResult, favoritesResult]) => {
+    if (requestVersion !== syncVersion) return;
+
+    state = {
+      ...state,
+      cart: cartResult.status === 'fulfilled' ? cartResult.value : [],
+      favorites:
+        favoritesResult.status === 'fulfilled' ? favoritesResult.value.products : [],
+      favoriteIds:
+        favoritesResult.status === 'fulfilled' ? favoritesResult.value.ids : [],
+      cartLoading: false,
+      favoritesLoading: false,
+      cartError: cartResult.status === 'rejected' ? getErrorMessage(cartResult.reason) : null,
+      favoritesError:
+        favoritesResult.status === 'rejected'
+          ? getErrorMessage(favoritesResult.reason)
+          : null,
+    };
+    loadedUserId = userId;
+    notify();
+  }).finally(() => {
+    if (requestVersion === syncVersion) {
+      pendingSync = null;
+      pendingUserId = undefined;
+    }
+  });
+
+  pendingSync = request;
+  await request;
+}
+
+async function currentUserId(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new Error(error.message);
+  if (!data.session?.user) {
+    throw new Error('Vui lòng đăng nhập để lưu giỏ hàng và sản phẩm yêu thích.');
+  }
+  return data.session.user.id;
+}
+
+async function getOrCreateCartId(userId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('carts')
+    .upsert({ user_id: userId }, { onConflict: 'user_id' })
+    .select('id')
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data.id;
+}
+
+function startCustomerDataSync() {
+  if (authSyncStarted) return;
+  authSyncStarted = true;
+
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') {
+      void syncCustomerData(null, true);
+    } else if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+      setTimeout(() => {
+        void syncCustomerData(session?.user.id ?? null);
+      }, 0);
+    }
+  });
+
+  void supabase.auth.getSession().then(({ data, error }) => {
+    if (error) {
+      state = {
+        ...state,
+        cartLoading: false,
+        favoritesLoading: false,
+        cartError: error.message,
+        favoritesError: error.message,
+      };
+      notify();
+      return;
+    }
+    return syncCustomerData(data.session?.user.id ?? null);
+  });
 }
 
 export const marketplaceStore = {
@@ -343,48 +256,103 @@ export const marketplaceStore = {
     };
   },
 
+  refreshCustomerData() {
+    return supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        state = {
+          ...state,
+          cartError: error.message,
+          favoritesError: error.message,
+          cartLoading: false,
+          favoritesLoading: false,
+        };
+        notify();
+        return;
+      }
+      return syncCustomerData(data.session?.user.id ?? null, true);
+    });
+  },
+
   // Shopping Cart Actions
-  addToCart(product: Product, quantity = 1, variant?: string) {
-    const existingIndex = state.cart.findIndex(
-      (item) => item.product.id === product.id && item.variant === (variant ?? product.variant)
-    );
+  async addToCart(product: Product, quantity = 1, variant?: string): Promise<string | null> {
+    try {
+      const userId = await currentUserId();
+      await syncCustomerData(userId);
+      const cartId = await getOrCreateCartId(userId);
+      const productVariant = product.variants?.find((item) => {
+        const label = [item.color, item.size].filter(Boolean).join(' / ');
+        return variant ? label === variant : item.id === product.variants?.[0]?.id;
+      });
+      let existingQuery = supabase
+        .from('cart_items')
+        .select('id, quantity')
+        .eq('cart_id', cartId)
+        .eq('product_id', product.id);
+      existingQuery = productVariant
+        ? existingQuery.eq('variant_id', productVariant.id)
+        : existingQuery.is('variant_id', null);
 
-    let nextCart: CartItem[];
-    if (existingIndex > -1) {
-      nextCart = state.cart.map((item, idx) =>
-        idx === existingIndex ? { ...item, quantity: item.quantity + quantity } : item
-      );
-    } else {
-      const newItem: CartItem = {
-        id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        product,
-        quantity,
-        variant: variant ?? product.variant,
-        selected: true,
-      };
-      nextCart = [newItem, ...state.cart];
+      const { data: existing, error: existingError } = await existingQuery.maybeSingle();
+      if (existingError) throw new Error(existingError.message);
+
+      if (existing) {
+        const { error } = await supabase
+          .from('cart_items')
+          .update({ quantity: existing.quantity + quantity, updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('cart_items').insert({
+          cart_id: cartId,
+          product_id: product.id,
+          variant_id: productVariant?.id ?? null,
+          quantity,
+        });
+        if (error) throw new Error(error.message);
+      }
+
+      await syncCustomerData(userId, true);
+      return null;
+    } catch (error) {
+      return getErrorMessage(error);
     }
-
-    state = { ...state, cart: nextCart };
-    notify();
   },
 
-  updateQuantity(cartItemId: string, quantity: number) {
+  async updateQuantity(cartItemId: string, quantity: number): Promise<string | null> {
     if (quantity <= 0) {
-      this.removeFromCart(cartItemId);
-      return;
+      return this.removeFromCart(cartItemId);
     }
-    const nextCart = state.cart.map((item) =>
-      item.id === cartItemId ? { ...item, quantity } : item
-    );
-    state = { ...state, cart: nextCart };
-    notify();
+    try {
+      const userId = await currentUserId();
+      await syncCustomerData(userId);
+      const { error } = await supabase
+        .from('cart_items')
+        .update({ quantity, updated_at: new Date().toISOString() })
+        .eq('id', cartItemId);
+      if (error) throw new Error(error.message);
+      state = {
+        ...state,
+        cart: state.cart.map((item) => item.id === cartItemId ? { ...item, quantity } : item),
+      };
+      notify();
+      return null;
+    } catch (error) {
+      return getErrorMessage(error);
+    }
   },
 
-  removeFromCart(cartItemId: string) {
-    const nextCart = state.cart.filter((item) => item.id !== cartItemId);
-    state = { ...state, cart: nextCart };
-    notify();
+  async removeFromCart(cartItemId: string): Promise<string | null> {
+    try {
+      const userId = await currentUserId();
+      await syncCustomerData(userId);
+      const { error } = await supabase.from('cart_items').delete().eq('id', cartItemId);
+      if (error) throw new Error(error.message);
+      state = { ...state, cart: state.cart.filter((item) => item.id !== cartItemId) };
+      notify();
+      return null;
+    } catch (error) {
+      return getErrorMessage(error);
+    }
   },
 
   toggleSelectItem(cartItemId: string) {
@@ -401,14 +369,35 @@ export const marketplaceStore = {
     notify();
   },
 
-  clearCart() {
-    state = { ...state, cart: [] };
-    notify();
+  async clearCart(): Promise<string | null> {
+    try {
+      const userId = await currentUserId();
+      await syncCustomerData(userId);
+      const cartId = await getOrCreateCartId(userId);
+      const { error } = await supabase.from('cart_items').delete().eq('cart_id', cartId);
+      if (error) throw new Error(error.message);
+      state = { ...state, cart: [] };
+      notify();
+      return null;
+    } catch (error) {
+      return getErrorMessage(error);
+    }
   },
 
-  clearSelectedCart() {
-    state = { ...state, cart: state.cart.filter((item) => !item.selected) };
-    notify();
+  async clearSelectedCart(): Promise<string | null> {
+    try {
+      const userId = await currentUserId();
+      await syncCustomerData(userId);
+      const selectedIds = state.cart.filter((item) => item.selected).map((item) => item.id);
+      if (selectedIds.length === 0) return null;
+      const { error } = await supabase.from('cart_items').delete().in('id', selectedIds);
+      if (error) throw new Error(error.message);
+      state = { ...state, cart: state.cart.filter((item) => !selectedIds.includes(item.id)) };
+      notify();
+      return null;
+    } catch (error) {
+      return getErrorMessage(error);
+    }
   },
 
   applyVoucher(code: string): { success: boolean; message: string } {
@@ -437,22 +426,63 @@ export const marketplaceStore = {
   },
 
   // Favorites Actions
-  toggleFavorite(productId: string) {
-    const exists = state.favoriteIds.includes(productId);
-    const nextFavorites = exists
-      ? state.favoriteIds.filter((id) => id !== productId)
-      : [...state.favoriteIds, productId];
-
-    state = { ...state, favoriteIds: nextFavorites };
-    notify();
+  async toggleFavorite(productId: string): Promise<string | null> {
+    try {
+      const userId = await currentUserId();
+      await syncCustomerData(userId);
+      const exists = state.favoriteIds.includes(productId);
+      if (exists) {
+        const { error } = await supabase
+          .from('favorites')
+          .delete()
+          .eq('user_id', userId)
+          .eq('product_id', productId);
+        if (error) throw new Error(error.message);
+        state = {
+          ...state,
+          favoriteIds: state.favoriteIds.filter((id) => id !== productId),
+          favorites: state.favorites.filter((product) => product.id !== productId),
+        };
+      } else {
+        const product = await ProductService.getById(productId);
+        if (!product) throw new Error('Không tìm thấy sản phẩm đang hoạt động.');
+        const { error } = await supabase
+          .from('favorites')
+          .insert({ user_id: userId, product_id: productId });
+        if (error) throw new Error(error.message);
+        state = {
+          ...state,
+          favoriteIds: [...state.favoriteIds, productId],
+          favorites: [product, ...state.favorites],
+        };
+      }
+      notify();
+      return null;
+    } catch (error) {
+      return getErrorMessage(error);
+    }
   },
 
-  removeFavorite(productId: string) {
-    state = {
-      ...state,
-      favoriteIds: state.favoriteIds.filter((id) => id !== productId),
-    };
-    notify();
+  async removeFavorite(productId: string): Promise<string | null> {
+    try {
+      const userId = await currentUserId();
+      await syncCustomerData(userId);
+      const { error } = await supabase
+        .from('favorites')
+        .delete()
+        .eq('user_id', userId)
+        .eq('product_id', productId);
+      if (error) throw new Error(error.message);
+      state = {
+        ...state,
+        favoriteIds: state.favoriteIds.filter((id) => id !== productId),
+        favorites: state.favorites.filter((product) => product.id !== productId),
+      };
+      notify();
+      return null;
+    } catch (error) {
+      return getErrorMessage(error);
+    }
   },
 
   isFavorite(productId: string) {
@@ -512,14 +542,9 @@ export const marketplaceStore = {
       isPaid: false,
     };
 
-    // Remove ordered items from cart
-    const orderedProductIds = new Set(params.items.map((it) => it.product.id));
-    const nextCart = state.cart.filter((item) => !orderedProductIds.has(item.product.id));
-
     state = {
       ...state,
       orders: [newOrder, ...state.orders],
-      cart: nextCart,
       voucherCode: '',
       discountRate: 0,
     };
@@ -572,12 +597,20 @@ export const marketplaceStore = {
 };
 
 // React Hooks
-export function useCart() {
-  const s = useSyncExternalStore(
+function useMarketplaceState() {
+  const snapshot = useSyncExternalStore(
     marketplaceStore.subscribe,
     marketplaceStore.getState,
     marketplaceStore.getServerSnapshot
   );
+  useEffect(() => {
+    startCustomerDataSync();
+  }, []);
+  return snapshot;
+}
+
+export function useCart() {
+  const s = useMarketplaceState();
   const selectedItems = s.cart.filter((i) => i.selected);
   const subtotal = selectedItems.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
   const discount = Math.round(subtotal * s.discountRate);
@@ -588,6 +621,9 @@ export function useCart() {
 
   return {
     cart: s.cart,
+    loading: s.cartLoading,
+    error: s.cartError,
+    refresh: marketplaceStore.refreshCustomerData.bind(marketplaceStore),
     selectedItems,
     subtotal,
     discount,
@@ -610,17 +646,15 @@ export function useCart() {
 }
 
 export function useFavorites() {
-  const s = useSyncExternalStore(
-    marketplaceStore.subscribe,
-    marketplaceStore.getState,
-    marketplaceStore.getServerSnapshot
-  );
-  const favorites = MOCK_PRODUCTS.filter((p) => s.favoriteIds.includes(p.id));
+  const s = useMarketplaceState();
 
   return {
     favoriteIds: s.favoriteIds,
-    favorites,
-    count: s.favoriteIds.length,
+    favorites: s.favorites,
+    count: s.favorites.length,
+    loading: s.favoritesLoading,
+    error: s.favoritesError,
+    refresh: marketplaceStore.refreshCustomerData.bind(marketplaceStore),
     toggleFavorite: marketplaceStore.toggleFavorite.bind(marketplaceStore),
     removeFavorite: marketplaceStore.removeFavorite.bind(marketplaceStore),
     isFavorite: (productId: string) => s.favoriteIds.includes(productId),
@@ -628,11 +662,7 @@ export function useFavorites() {
 }
 
 export function useOrders() {
-  const s = useSyncExternalStore(
-    marketplaceStore.subscribe,
-    marketplaceStore.getState,
-    marketplaceStore.getServerSnapshot
-  );
+  const s = useMarketplaceState();
 
   return {
     orders: s.orders,
@@ -643,11 +673,7 @@ export function useOrders() {
 }
 
 export function useReviews() {
-  const s = useSyncExternalStore(
-    marketplaceStore.subscribe,
-    marketplaceStore.getState,
-    marketplaceStore.getServerSnapshot
-  );
+  const s = useMarketplaceState();
 
   return {
     reviews: s.reviews,

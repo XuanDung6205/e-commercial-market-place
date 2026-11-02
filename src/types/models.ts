@@ -11,7 +11,16 @@ export type Product = {
   category?: string;
   description?: string;
   variant?: string;
+  variants?: ProductVariant[];
   stock?: number;
+};
+
+export type ProductVariant = {
+  id: string;
+  color: string | null;
+  size: string | null;
+  priceOverride: number | null;
+  stock: number;
 };
 
 export type CartItem = {
@@ -19,6 +28,7 @@ export type CartItem = {
   product: Product;
   quantity: number;
   variant?: string;
+  variantId?: string | null;
   selected: boolean;
 };
 

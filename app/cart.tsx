@@ -1,4 +1,4 @@
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -27,6 +27,9 @@ export default function CartScreen() {
     applyVoucher,
     removeVoucher,
     clearCart,
+    loading,
+    error,
+    refresh,
   } = useCart();
 
   const isAllSelected = cart.length > 0 && cart.every((i) => i.selected);
@@ -34,8 +37,37 @@ export default function CartScreen() {
   const confirmDelete = (cartItemId: string, name: string) => {
     Alert.alert('Xóa sản phẩm', `Bạn có chắc muốn xóa "${name}" khỏi giỏ hàng?`, [
       { text: 'Hủy', style: 'cancel' },
-      { text: 'Xóa', style: 'destructive', onPress: () => removeFromCart(cartItemId) },
+      {
+        text: 'Xóa',
+        style: 'destructive',
+        onPress: () => {
+          void removeFromCart(cartItemId).then((actionError) => {
+            if (actionError) Alert.alert('Không thể xóa sản phẩm', actionError);
+          });
+        },
+      },
     ]);
+  };
+
+  const handleClearCart = () => {
+    Alert.alert('Xóa toàn bộ giỏ hàng', 'Bạn có chắc muốn xóa tất cả sản phẩm?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa hết',
+        style: 'destructive',
+        onPress: () => {
+          void clearCart().then((actionError) => {
+            if (actionError) Alert.alert('Không thể xóa giỏ hàng', actionError);
+          });
+        },
+      },
+    ]);
+  };
+
+  const handleUpdateQuantity = (cartItemId: string, quantity: number) => {
+    void updateQuantity(cartItemId, quantity).then((actionError) => {
+      if (actionError) Alert.alert('Không thể cập nhật số lượng', actionError);
+    });
   };
 
   const handleCheckout = () => {
@@ -69,12 +101,7 @@ export default function CartScreen() {
         {cart.length > 0 ? (
           <Pressable
             hitSlop={8}
-            onPress={() => {
-              Alert.alert('Xóa toàn bộ giỏ hàng', 'Bạn có chắc muốn xóa tất cả sản phẩm?', [
-                { text: 'Hủy', style: 'cancel' },
-                { text: 'Xóa hết', style: 'destructive', onPress: clearCart },
-              ]);
-            }}
+            onPress={handleClearCart}
           >
             <Text style={styles.clearAllText}>Xóa tất cả</Text>
           </Pressable>
@@ -83,7 +110,20 @@ export default function CartScreen() {
         )}
       </View>
 
-      {cart.length === 0 ? (
+      {loading && cart.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <ActivityIndicator color={colors.cyan} />
+          <Text style={styles.emptySubtitle}>Đang tải giỏ hàng từ Supabase...</Text>
+        </View>
+      ) : error && cart.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyTitle}>Không thể tải giỏ hàng</Text>
+          <Text style={styles.emptySubtitle}>{error}</Text>
+          <Pressable onPress={() => void refresh()} style={styles.exploreButton}>
+            <Text style={styles.exploreButtonText}>Thử lại</Text>
+          </Pressable>
+        </View>
+      ) : cart.length === 0 ? (
         <View style={styles.emptyContainer}>
           <View style={styles.emptyCircle}>
             <SymbolView
@@ -106,6 +146,11 @@ export default function CartScreen() {
         </View>
       ) : (
         <>
+          {error ? (
+            <Pressable onPress={() => void refresh()} style={styles.errorBanner}>
+              <Text style={styles.errorText}>{error} · Chạm để thử lại</Text>
+            </Pressable>
+          ) : null}
           <FlatList
             data={cart}
             keyExtractor={(item) => item.id}
@@ -118,7 +163,7 @@ export default function CartScreen() {
                   if (q <= 0) {
                     confirmDelete(item.id, item.product.name);
                   } else {
-                    updateQuantity(item.id, q);
+                    handleUpdateQuantity(item.id, q);
                   }
                 }}
                 onRemove={() => confirmDelete(item.id, item.product.name)}
@@ -213,6 +258,8 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 24,
   },
+  errorBanner: { backgroundColor: '#FEE4E2', marginHorizontal: 16, marginTop: 12, padding: 10, borderRadius: 8 },
+  errorText: { color: colors.danger, fontSize: 12, textAlign: 'center' },
   summaryCard: {
     backgroundColor: colors.white,
     borderRadius: 14,

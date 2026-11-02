@@ -15,11 +15,11 @@ import { StatusBar } from 'expo-status-bar';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { formatCurrency } from '@/src/utils/formatCurrency';
-import { MOCK_PRODUCTS, useCart, useFavorites } from '@/src/store/marketplaceStore';
+import { useCart, useFavorites } from '@/src/store/marketplaceStore';
 import { RatingSummary } from '@/src/components/product/RatingSummary';
 import { ReviewItem } from '@/src/components/product/ReviewItem';
+import { ProductService } from '@/src/services/product.service';
 import { ReviewService, ReviewSortOption, ReviewStats } from '@/src/services/review.service';
-import { supabase } from '@/src/services/supabase';
 import { Product, Review } from '@/src/types/models';
 
 const SORT_TABS: { id: ReviewSortOption; label: string }[] = [
@@ -35,16 +35,15 @@ function isUuid(value: string): boolean {
 export default function ProductDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  // State for product details
-  const [product, setProduct] = useState<Product>(() => {
-    return MOCK_PRODUCTS.find((p) => p.id === id) || MOCK_PRODUCTS[0];
-  });
+  const [loadedProduct, setLoadedProduct] = useState<Product | null>(null);
+  const [loadedProductId, setLoadedProductId] = useState<string | null>(null);
+  const [loadedProductError, setLoadedProductError] = useState<string | null>(null);
+  const [productLoadAttempt, setProductLoadAttempt] = useState(0);
 
   const { addToCart, totalQuantity } = useCart();
   const { isFavorite, toggleFavorite } = useFavorites();
 
   const [quantity, setQuantity] = useState(1);
-  const [selectedVariant] = useState(product.variant || 'Mặc định');
   const [added, setAdded] = useState(false);
 
   // Reviews state from Supabase
@@ -54,55 +53,60 @@ export default function ProductDetailScreen() {
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [sortOption, setSortOption] = useState<ReviewSortOption>('newest');
   const [stats, setStats] = useState<ReviewStats>({
-    average: product.rating,
-    total: product.reviewCount,
+    average: 0,
+    total: 0,
     distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
   });
 
-  const favorited = isFavorite(product.id);
-  const isPersistedProduct = isUuid(product.id);
+  const product = loadedProductId === id ? loadedProduct : null;
+  const productError = loadedProductId === id ? loadedProductError : null;
+  const loadingProduct = loadedProductId !== id;
+  const favorited = product ? isFavorite(product.id) : false;
+  const selectedVariant = product?.variant;
 
-  // 1. Fetch product from Supabase if id is a UUID
   useEffect(() => {
     let active = true;
-    if (id && isUuid(id)) {
-      void (async () => {
-        try {
-          const { data, error } = await supabase
-            .from('products')
-            .select('*, product_images(image_url)')
-            .eq('id', id)
-            .maybeSingle();
 
-          if (!active || error || !data) return;
-
-          const img = data.product_images?.[0]?.image_url || MOCK_PRODUCTS[0].image;
-          setProduct({
-            id: data.id,
-            name: data.name,
-            price: Number(data.price),
-            compareAtPrice: data.compare_at_price ? Number(data.compare_at_price) : undefined,
-            image: img,
-            rating: 0,
-            reviewCount: 0,
-            description: data.description || '',
-            stock: data.stock_quantity ?? 50,
-          });
-        } catch {
-          // Fallback product kept
-        }
-      })();
+    if (!id || !isUuid(id)) {
+      Promise.resolve().then(() => {
+        if (!active) return;
+        setLoadedProduct(null);
+        setLoadedProductError('Mã sản phẩm không hợp lệ.');
+        setLoadedProductId(id ?? '');
+      });
+      return () => {
+        active = false;
+      };
     }
+
+    void ProductService.getById(id)
+      .then((loadedProduct) => {
+        if (!active) return;
+        if (!loadedProduct) {
+          setLoadedProduct(null);
+          setLoadedProductError('Không tìm thấy sản phẩm đang hoạt động trong Supabase.');
+          setLoadedProductId(id);
+          return;
+        }
+        setLoadedProduct(loadedProduct);
+        setLoadedProductError(null);
+        setLoadedProductId(id);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setLoadedProduct(null);
+          setLoadedProductError(error instanceof Error ? error.message : 'Không thể tải sản phẩm.');
+          setLoadedProductId(id);
+        }
+      });
 
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, productLoadAttempt]);
 
-  // 2. Fetch reviews and userReview from Supabase
   const loadReviews = useCallback(async () => {
-    if (!product.id) return;
-    if (!isUuid(product.id)) {
+    if (!product) {
       setReviews([]);
       setUserReview(null);
       setReviewError(null);
@@ -151,7 +155,7 @@ export default function ProductDetailScreen() {
     } finally {
       setLoadingReviews(false);
     }
-  }, [product.id, sortOption]);
+  }, [product, sortOption]);
 
   // Reload reviews on mount and when screen is focused (e.g. after returning from feedback screen)
   useFocusEffect(
@@ -160,22 +164,46 @@ export default function ProductDetailScreen() {
     }, [loadReviews])
   );
 
-  const handleAddToCart = () => {
-    addToCart(product, quantity, selectedVariant);
+  const handleAddToCart = async () => {
+    if (!product) return;
+    const error = await addToCart(product, quantity, selectedVariant);
+    if (error) {
+      Alert.alert('Không thể thêm vào giỏ hàng', error, [
+        { text: 'Đóng', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
+      ]);
+      return;
+    }
     setAdded(true);
     setTimeout(() => setAdded(false), 1500);
   };
 
-  const handleBuyNow = () => {
-    addToCart(product, quantity, selectedVariant);
+  const handleBuyNow = async () => {
+    if (!product) return;
+    const error = await addToCart(product, quantity, selectedVariant);
+    if (error) {
+      Alert.alert('Không thể mua ngay', error, [
+        { text: 'Đóng', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
+      ]);
+      return;
+    }
     router.push('/payment');
   };
 
-  const handleWriteReview = async () => {
-    if (!isPersistedProduct) {
-      Alert.alert('Chưa thể đánh giá', 'Sản phẩm mẫu chưa hỗ trợ lưu đánh giá.');
-      return;
+  const handleToggleFavorite = async () => {
+    if (!product) return;
+    const error = await toggleFavorite(product.id);
+    if (error) {
+      Alert.alert('Không thể cập nhật yêu thích', error, [
+        { text: 'Đóng', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
+      ]);
     }
+  };
+
+  const handleWriteReview = async () => {
+    if (!product) return;
 
     const user = await ReviewService.getCurrentUser();
     if (!user) {
@@ -194,7 +222,7 @@ export default function ProductDetailScreen() {
           productId: product.id,
           productName: product.name,
           image: product.image,
-          variant: selectedVariant,
+          ...(selectedVariant ? { variant: selectedVariant } : {}),
           reviewId: userReview.id,
           initialRating: String(userReview.rating),
           initialComment: userReview.comment,
@@ -208,20 +236,21 @@ export default function ProductDetailScreen() {
           productId: product.id,
           productName: product.name,
           image: product.image,
-          variant: selectedVariant,
+          ...(selectedVariant ? { variant: selectedVariant } : {}),
         },
       });
     }
   };
 
   const handleEditReview = (rev: Review) => {
+    if (!product) return;
     router.push({
       pathname: '/feedback',
       params: {
         productId: product.id,
         productName: product.name,
         image: product.image,
-        variant: selectedVariant,
+        ...(selectedVariant ? { variant: selectedVariant } : {}),
         reviewId: rev.id,
         initialRating: String(rev.rating),
         initialComment: rev.comment,
@@ -241,6 +270,42 @@ export default function ProductDetailScreen() {
     Alert.alert('Thành công', 'Đánh giá của bạn đã được xóa.');
     await loadReviews();
   };
+
+  if (loadingProduct) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <StatusBar style="dark" />
+        <View style={styles.productState}>
+          <ActivityIndicator color={colors.cyan} />
+          <Text style={styles.loadingText}>Đang tải sản phẩm từ Supabase...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (productError || !product) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <StatusBar style="dark" />
+        <View style={styles.productState}>
+          <Text style={styles.errorText}>{productError || 'Không tìm thấy sản phẩm.'}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setLoadedProductId(null);
+              setProductLoadAttempt((attempt) => attempt + 1);
+            }}
+            style={styles.retryBtn}
+          >
+            <Text style={styles.retryBtnText}>Thử lại</Text>
+          </Pressable>
+          <Pressable onPress={() => router.back()} style={styles.retryBtn}>
+            <Text style={styles.retryBtnText}>Quay lại</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -267,7 +332,7 @@ export default function ProductDetailScreen() {
             accessibilityRole="button"
             accessibilityLabel="Yêu thích"
             hitSlop={10}
-            onPress={() => toggleFavorite(product.id)}
+            onPress={() => void handleToggleFavorite()}
             style={styles.headerButton}
           >
             <SymbolView
@@ -307,7 +372,13 @@ export default function ProductDetailScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Product Image */}
         <View style={styles.imageContainer}>
-          <Image source={{ uri: product.image }} style={styles.image} resizeMode="cover" />
+          {product.image ? (
+            <Image source={{ uri: product.image }} style={styles.image} resizeMode="cover" />
+          ) : (
+            <View style={styles.imageFallback}>
+              <Text style={styles.emptySubtitle}>Sản phẩm chưa có hình ảnh</Text>
+            </View>
+          )}
           {product.tag ? (
             <View style={styles.tagBadge}>
               <Text style={styles.tagText}>{product.tag}</Text>
@@ -340,7 +411,7 @@ export default function ProductDetailScreen() {
                 ({stats.total} đánh giá)
               </Text>
             </View>
-            <Text style={styles.stockText}>Kho: {product.stock || 50} sản phẩm</Text>
+            <Text style={styles.stockText}>Kho: {product.stock ?? 0} sản phẩm</Text>
           </View>
         </View>
 
@@ -375,8 +446,7 @@ export default function ProductDetailScreen() {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Mô tả sản phẩm</Text>
           <Text style={styles.description}>
-            {product.description ||
-              'Sản phẩm chất lượng cao, nguồn gốc xuất xứ rõ ràng. Đảm bảo giao hàng nhanh chóng và chính sách đổi trả thuận tiện.'}
+            {product.description || 'Chưa có mô tả cho sản phẩm này.'}
           </Text>
         </View>
 
@@ -388,24 +458,22 @@ export default function ProductDetailScreen() {
               <Text style={styles.reviewsSubText}>Nhận xét từ khách hàng thực tế</Text>
             </View>
 
-            {isPersistedProduct ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={userReview ? 'Sửa đánh giá của bạn' : 'Viết đánh giá'}
-                hitSlop={8}
-                onPress={handleWriteReview}
-                style={[styles.writeReviewBtn, userReview && styles.writeReviewBtnActive]}
-              >
-                <SymbolView
-                  name={{ ios: 'square.and.pencil', android: 'edit', web: 'edit' }}
-                  tintColor={colors.cyan}
-                  size={14}
-                />
-                <Text style={styles.writeReviewText}>
-                  {userReview ? 'Sửa đánh giá' : 'Viết đánh giá'}
-                </Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={userReview ? 'Sửa đánh giá của bạn' : 'Viết đánh giá'}
+              hitSlop={8}
+              onPress={handleWriteReview}
+              style={[styles.writeReviewBtn, userReview && styles.writeReviewBtnActive]}
+            >
+              <SymbolView
+                name={{ ios: 'square.and.pencil', android: 'edit', web: 'edit' }}
+                tintColor={colors.cyan}
+                size={14}
+              />
+              <Text style={styles.writeReviewText}>
+                {userReview ? 'Sửa đánh giá' : 'Viết đánh giá'}
+              </Text>
+            </Pressable>
           </View>
 
           {/* Rating Summary Breakdown from Supabase stats */}
@@ -461,19 +529,13 @@ export default function ProductDetailScreen() {
                   size={32}
                 />
               </View>
-              <Text style={styles.emptyTitle}>
-                {isPersistedProduct ? 'Chưa có đánh giá nào' : 'Sản phẩm mẫu'}
-              </Text>
+              <Text style={styles.emptyTitle}>Chưa có đánh giá nào</Text>
               <Text style={styles.emptySubtitle}>
-                {isPersistedProduct
-                  ? 'Hãy là người đầu tiên chia sẻ cảm nhận về sản phẩm này!'
-                  : 'Sản phẩm mẫu chưa hỗ trợ lưu và hiển thị đánh giá.'}
+                Hãy là người đầu tiên chia sẻ cảm nhận về sản phẩm này!
               </Text>
-              {isPersistedProduct ? (
-                <Pressable onPress={handleWriteReview} style={styles.emptyWriteBtn}>
-                  <Text style={styles.emptyWriteBtnText}>Viết đánh giá ngay</Text>
-                </Pressable>
-              ) : null}
+              <Pressable onPress={handleWriteReview} style={styles.emptyWriteBtn}>
+                <Text style={styles.emptyWriteBtnText}>Viết đánh giá ngay</Text>
+              </Pressable>
             </View>
           ) : (
             <View style={styles.reviewsList}>
@@ -528,6 +590,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFB',
   },
+  productState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    gap: 12,
+  },
   header: {
     height: 52,
     flexDirection: 'row',
@@ -578,6 +647,12 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
+  },
+  imageFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.softBg,
   },
   tagBadge: {
     position: 'absolute',

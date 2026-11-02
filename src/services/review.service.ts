@@ -272,7 +272,7 @@ export const ReviewService = {
     orderId?: string | null;
   }): Promise<{ review: Review | null; error: string | null }> {
     if (!isUuid(params.productId)) {
-      return { review: null, error: 'Sản phẩm mẫu chưa hỗ trợ lưu đánh giá.' };
+      return { review: null, error: 'Mã sản phẩm không hợp lệ.' };
     }
 
     try {

@@ -21,7 +21,7 @@ import { useOrders } from '@/src/store/marketplaceStore';
 type PaymentMethodType = 'cod' | 'bank_transfer' | 'e_wallet';
 
 export default function PaymentScreen() {
-  const { selectedItems, subtotal, discount, tax, shippingFee, total } = useCart();
+  const { selectedItems, subtotal, discount, tax, shippingFee, total, clearSelectedCart } = useCart();
   const { placeOrder } = useOrders();
 
   const [recipientName, setRecipientName] = useState('Nguyễn Minh Anh');
@@ -34,7 +34,7 @@ export default function PaymentScreen() {
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (selectedItems.length === 0) {
       Alert.alert('Lỗi', 'Không có sản phẩm nào được chọn để thanh toán.');
       return;
@@ -45,26 +45,31 @@ export default function PaymentScreen() {
     }
 
     setSubmitting(true);
-    setTimeout(() => {
-      const order = placeOrder({
-        items: selectedItems.map((item) => ({
-          product: item.product,
-          quantity: item.quantity,
-          variant: item.variant,
-        })),
-        recipientName: recipientName.trim(),
-        phone: phone.trim(),
-        address: address.trim(),
-        paymentMethod,
-        note: note.trim(),
-      });
-
+    const cartError = await clearSelectedCart();
+    if (cartError) {
       setSubmitting(false);
-      router.replace({
-        pathname: '/order-success',
-        params: { orderId: order.id, orderNumber: order.orderNumber },
-      });
-    }, 400);
+      Alert.alert('Không thể đặt hàng', cartError);
+      return;
+    }
+
+    const order = placeOrder({
+      items: selectedItems.map((item) => ({
+        product: item.product,
+        quantity: item.quantity,
+        variant: item.variant,
+      })),
+      recipientName: recipientName.trim(),
+      phone: phone.trim(),
+      address: address.trim(),
+      paymentMethod,
+      note: note.trim(),
+    });
+
+    setSubmitting(false);
+    router.replace({
+      pathname: '/order-success',
+      params: { orderId: order.id, orderNumber: order.orderNumber },
+    });
   };
 
   return (
