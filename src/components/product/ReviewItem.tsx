@@ -1,21 +1,48 @@
 import { useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { Review } from '@/src/types/models';
 
 type ReviewItemProps = {
   review: Review;
+  onEdit?: (review: Review) => void;
+  onDelete?: (reviewId: string) => void;
 };
 
-export function ReviewItem({ review }: ReviewItemProps) {
-  const { userName, userAvatar, rating, createdAt, isVerifiedBuyer, comment, images, tags } = review;
+export function ReviewItem({ review, onEdit, onDelete }: ReviewItemProps) {
+  const {
+    id,
+    userName,
+    userAvatar,
+    rating,
+    createdAt,
+    isVerifiedBuyer,
+    comment,
+    images,
+    tags,
+    isOwner,
+  } = review;
+
   const [activeImage, setActiveImage] = useState<string | null>(null);
 
   const initial = (userName || 'U').trim().slice(0, 1).toUpperCase();
 
+  const handleConfirmDelete = () => {
+    Alert.alert('Xóa đánh giá', 'Bạn có chắc chắn muốn xóa bài đánh giá này không?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Xóa',
+        style: 'destructive',
+        onPress: () => {
+          onDelete?.(id);
+        },
+      },
+    ]);
+  };
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isOwner && styles.ownerCard]}>
       {/* User Header */}
       <View style={styles.headerRow}>
         <View style={styles.userBlock}>
@@ -29,7 +56,10 @@ export function ReviewItem({ review }: ReviewItemProps) {
 
           <View style={styles.nameBlock}>
             <View style={styles.nameBadgeRow}>
-              <Text style={styles.userName}>{userName}</Text>
+              <Text style={styles.userName}>
+                {userName}
+                {isOwner ? ' (Bạn)' : ''}
+              </Text>
               {isVerifiedBuyer ? (
                 <View style={styles.verifiedBadge}>
                   <SymbolView
@@ -87,6 +117,41 @@ export function ReviewItem({ review }: ReviewItemProps) {
         </View>
       ) : null}
 
+      {/* Owner Actions (Edit & Delete) */}
+      {isOwner ? (
+        <View style={styles.ownerActionsRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Chỉnh sửa đánh giá"
+            hitSlop={6}
+            onPress={() => onEdit?.(review)}
+            style={styles.editActionBtn}
+          >
+            <SymbolView
+              name={{ ios: 'pencil', android: 'edit', web: 'edit' }}
+              tintColor={colors.cyan}
+              size={13}
+            />
+            <Text style={styles.editActionText}>Chỉnh sửa</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Xóa đánh giá"
+            hitSlop={6}
+            onPress={handleConfirmDelete}
+            style={styles.deleteActionBtn}
+          >
+            <SymbolView
+              name={{ ios: 'trash', android: 'delete_outline', web: 'delete' }}
+              tintColor={colors.danger}
+              size={13}
+            />
+            <Text style={styles.deleteActionText}>Xóa</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* Image Zoom Modal */}
       <Modal visible={!!activeImage} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setActiveImage(null)}>
@@ -116,6 +181,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: '#EDF1F3',
+  },
+  ownerCard: {
+    borderColor: '#BFEFF7',
+    backgroundColor: '#FAFDFE',
   },
   headerRow: {
     flexDirection: 'row',
@@ -219,6 +288,40 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 8,
     backgroundColor: '#F2F4F7',
+  },
+  ownerActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 14,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#EEF1F4',
+  },
+  editActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  editActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.cyan,
+  },
+  deleteActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  deleteActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.danger,
   },
   modalOverlay: {
     flex: 1,

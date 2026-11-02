@@ -56,15 +56,18 @@ export type Order = {
 
 export type Review = {
   id: string;
-  orderId?: string;
+  orderId?: string | null;
   productId: string;
   productName?: string;
+  userId?: string;
   userName?: string;
-  userAvatar?: string;
+  userAvatar?: string | null;
   rating: number;
   comment: string;
   tags?: string[];
   createdAt: string;
+  updatedAt?: string;
   isVerifiedBuyer?: boolean;
   images?: string[];
+  isOwner?: boolean;
 };

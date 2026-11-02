@@ -332,6 +332,10 @@ export const marketplaceStore = {
     return state;
   },
 
+  getServerSnapshot() {
+    return INITIAL_STATE;
+  },
+
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => {
@@ -569,7 +573,11 @@ export const marketplaceStore = {
 
 // React Hooks
 export function useCart() {
-  const s = useSyncExternalStore(marketplaceStore.subscribe, marketplaceStore.getState);
+  const s = useSyncExternalStore(
+    marketplaceStore.subscribe,
+    marketplaceStore.getState,
+    marketplaceStore.getServerSnapshot
+  );
   const selectedItems = s.cart.filter((i) => i.selected);
   const subtotal = selectedItems.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
   const discount = Math.round(subtotal * s.discountRate);
@@ -602,7 +610,11 @@ export function useCart() {
 }
 
 export function useFavorites() {
-  const s = useSyncExternalStore(marketplaceStore.subscribe, marketplaceStore.getState);
+  const s = useSyncExternalStore(
+    marketplaceStore.subscribe,
+    marketplaceStore.getState,
+    marketplaceStore.getServerSnapshot
+  );
   const favorites = MOCK_PRODUCTS.filter((p) => s.favoriteIds.includes(p.id));
 
   return {
@@ -616,7 +628,11 @@ export function useFavorites() {
 }
 
 export function useOrders() {
-  const s = useSyncExternalStore(marketplaceStore.subscribe, marketplaceStore.getState);
+  const s = useSyncExternalStore(
+    marketplaceStore.subscribe,
+    marketplaceStore.getState,
+    marketplaceStore.getServerSnapshot
+  );
 
   return {
     orders: s.orders,
@@ -627,7 +643,11 @@ export function useOrders() {
 }
 
 export function useReviews() {
-  const s = useSyncExternalStore(marketplaceStore.subscribe, marketplaceStore.getState);
+  const s = useSyncExternalStore(
+    marketplaceStore.subscribe,
+    marketplaceStore.getState,
+    marketplaceStore.getServerSnapshot
+  );
 
   return {
     reviews: s.reviews,
