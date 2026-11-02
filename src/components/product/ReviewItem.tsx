@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { Review } from '@/src/types/models';
@@ -7,7 +7,7 @@ import { Review } from '@/src/types/models';
 type ReviewItemProps = {
   review: Review;
   onEdit?: (review: Review) => void;
-  onDelete?: (reviewId: string) => void;
+  onDelete?: (reviewId: string) => Promise<string | null>;
 };
 
 export function ReviewItem({ review, onEdit, onDelete }: ReviewItemProps) {
@@ -25,20 +25,28 @@ export function ReviewItem({ review, onEdit, onDelete }: ReviewItemProps) {
   } = review;
 
   const [activeImage, setActiveImage] = useState<string | null>(null);
+  const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const initial = (userName || 'U').trim().slice(0, 1).toUpperCase();
 
   const handleConfirmDelete = () => {
-    Alert.alert('Xóa đánh giá', 'Bạn có chắc chắn muốn xóa bài đánh giá này không?', [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Xóa',
-        style: 'destructive',
-        onPress: () => {
-          onDelete?.(id);
-        },
-      },
-    ]);
+    setDeleteError(null);
+    setConfirmDeleteVisible(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!onDelete) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const error = await onDelete(id);
+    setDeleting(false);
+    if (error) {
+      setDeleteError(error);
+      return;
+    }
+    setConfirmDeleteVisible(false);
   };
 
   return (
@@ -168,6 +176,47 @@ export function ReviewItem({ review, onEdit, onDelete }: ReviewItemProps) {
             </Pressable>
           </View>
         </Pressable>
+      </Modal>
+
+      <Modal
+        visible={confirmDeleteVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deleting) setConfirmDeleteVisible(false);
+        }}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalCard}>
+            <Text style={styles.deleteModalTitle}>Xóa đánh giá?</Text>
+            <Text style={styles.deleteModalMessage}>
+              Đánh giá này sẽ bị xóa vĩnh viễn.
+            </Text>
+            {deleteError ? <Text style={styles.deleteModalError}>{deleteError}</Text> : null}
+            <View style={styles.deleteModalActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={deleting}
+                onPress={() => setConfirmDeleteVisible(false)}
+                style={styles.deleteCancelButton}
+              >
+                <Text style={styles.deleteCancelText}>Hủy</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={deleting}
+                onPress={() => void confirmDelete()}
+                style={styles.deleteConfirmButton}
+              >
+                {deleting ? (
+                  <ActivityIndicator color={colors.white} size="small" />
+                ) : (
+                  <Text style={styles.deleteConfirmText}>Xóa</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -349,5 +398,69 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  deleteModalCard: {
+    width: '100%',
+    maxWidth: 360,
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: colors.white,
+  },
+  deleteModalTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  deleteModalMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  deleteModalError: {
+    color: colors.danger,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 12,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  deleteCancelButton: {
+    flex: 1,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: '#F3F5F7',
+  },
+  deleteCancelText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  deleteConfirmButton: {
+    flex: 1,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: colors.danger,
+  },
+  deleteConfirmText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

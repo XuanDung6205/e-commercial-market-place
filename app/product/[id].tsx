@@ -45,6 +45,7 @@ export default function ProductDetailScreen() {
 
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Reviews state from Supabase
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -166,12 +167,10 @@ export default function ProductDetailScreen() {
 
   const handleAddToCart = async () => {
     if (!product) return;
+    setActionError(null);
     const error = await addToCart(product, quantity, selectedVariant);
     if (error) {
-      Alert.alert('Không thể thêm vào giỏ hàng', error, [
-        { text: 'Đóng', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
-      ]);
+      setActionError(error);
       return;
     }
     setAdded(true);
@@ -180,12 +179,10 @@ export default function ProductDetailScreen() {
 
   const handleBuyNow = async () => {
     if (!product) return;
+    setActionError(null);
     const error = await addToCart(product, quantity, selectedVariant);
     if (error) {
-      Alert.alert('Không thể mua ngay', error, [
-        { text: 'Đóng', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
-      ]);
+      setActionError(error);
       return;
     }
     router.push('/payment');
@@ -193,12 +190,10 @@ export default function ProductDetailScreen() {
 
   const handleToggleFavorite = async () => {
     if (!product) return;
-    const error = await toggleFavorite(product.id);
+    setActionError(null);
+    const error = await toggleFavorite(product.id, product);
     if (error) {
-      Alert.alert('Không thể cập nhật yêu thích', error, [
-        { text: 'Đóng', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
-      ]);
+      setActionError(error);
     }
   };
 
@@ -258,17 +253,14 @@ export default function ProductDetailScreen() {
     });
   };
 
-  const handleDeleteReview = async (reviewId: string) => {
-    setLoadingReviews(true);
+  const handleDeleteReview = async (reviewId: string): Promise<string | null> => {
     const { success, error } = await ReviewService.deleteReview(reviewId);
     if (!success || error) {
-      Alert.alert('Không thể xóa', error || 'Đã có lỗi xảy ra.');
-      setLoadingReviews(false);
-      return;
+      return error || 'Đã có lỗi xảy ra khi xóa đánh giá.';
     }
 
-    Alert.alert('Thành công', 'Đánh giá của bạn đã được xóa.');
     await loadReviews();
+    return null;
   };
 
   if (loadingProduct) {
@@ -554,6 +546,11 @@ export default function ProductDetailScreen() {
 
       {/* Sticky Bottom Bar */}
       <View style={styles.bottomBar}>
+        {actionError ? (
+          <View style={styles.actionError}>
+            <Text style={styles.actionErrorText}>{actionError}</Text>
+          </View>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           onPress={handleAddToCart}
@@ -917,6 +914,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderTopWidth: 1,
     borderTopColor: '#EEF0F2',
+  },
+  actionError: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: '100%',
+    backgroundColor: '#FEE4E2',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
+  actionErrorText: {
+    color: colors.danger,
+    fontSize: 12,
+    textAlign: 'center',
   },
   addCartBtn: {
     flex: 1,

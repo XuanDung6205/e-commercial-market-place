@@ -3,6 +3,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -25,18 +26,17 @@ export default function FavoritesScreen() {
   const [keyword, setKeyword] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [addedId, setAddedId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const filteredFavorites = favorites.filter((item) =>
     item.name.toLowerCase().includes(keyword.trim().toLowerCase())
   );
 
   const handleAddToCart = async (product: Product) => {
-    const actionError = await addToCart(product, 1);
-    if (actionError) {
-      Alert.alert('Không thể thêm vào giỏ hàng', actionError, [
-        { text: 'Đóng', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
-      ]);
+    setActionError(null);
+    const errorMessage = await addToCart(product, 1);
+    if (errorMessage) {
+      setActionError(errorMessage);
       return;
     }
     setAddedId(product.id);
@@ -46,16 +46,26 @@ export default function FavoritesScreen() {
   };
 
   const handleRemove = (product: Product) => {
+    const remove = () => {
+      setActionError(null);
+      void removeFavorite(product.id).then((errorMessage) => {
+        if (errorMessage) setActionError(errorMessage);
+      });
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm(`Bỏ "${product.name}" khỏi danh sách yêu thích?`)) {
+        remove();
+      }
+      return;
+    }
+
     Alert.alert('Bỏ yêu thích', `Bỏ "${product.name}" khỏi danh sách yêu thích?`, [
       { text: 'Hủy', style: 'cancel' },
       {
         text: 'Bỏ lưu',
         style: 'destructive',
-        onPress: () => {
-          void removeFavorite(product.id).then((actionError) => {
-            if (actionError) Alert.alert('Không thể bỏ yêu thích', actionError);
-          });
-        },
+        onPress: remove,
       },
     ]);
   };
@@ -126,6 +136,11 @@ export default function FavoritesScreen() {
       ) : (
         /* Populated List matching Figma image 1 */
         <View style={styles.content}>
+          {actionError ? (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorText}>{actionError}</Text>
+            </View>
+          ) : null}
           {error ? (
             <Pressable onPress={() => void refresh()} style={styles.errorBanner}>
               <Text style={styles.errorText}>{error} · Chạm để thử lại</Text>

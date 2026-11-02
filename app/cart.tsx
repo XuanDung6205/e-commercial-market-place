@@ -1,4 +1,14 @@
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -11,6 +21,9 @@ import { TotalBar } from '@/src/components/cart/TotalBar';
 import { VoucherInput } from '@/src/components/cart/VoucherInput';
 
 export default function CartScreen() {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmClearVisible, setConfirmClearVisible] = useState(false);
+  const [clearingCart, setClearingCart] = useState(false);
   const {
     cart,
     selectedItems,
@@ -34,40 +47,31 @@ export default function CartScreen() {
 
   const isAllSelected = cart.length > 0 && cart.every((i) => i.selected);
 
-  const confirmDelete = (cartItemId: string, name: string) => {
-    Alert.alert('Xóa sản phẩm', `Bạn có chắc muốn xóa "${name}" khỏi giỏ hàng?`, [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Xóa',
-        style: 'destructive',
-        onPress: () => {
-          void removeFromCart(cartItemId).then((actionError) => {
-            if (actionError) Alert.alert('Không thể xóa sản phẩm', actionError);
-          });
-        },
-      },
-    ]);
+  const handleRemove = (cartItemId: string) => {
+    setActionError(null);
+    void removeFromCart(cartItemId).then(setActionErrorIfFailed);
+  };
+
+  const setActionErrorIfFailed = (message: string | null) => {
+    if (message) setActionError(message);
   };
 
   const handleClearCart = () => {
-    Alert.alert('Xóa toàn bộ giỏ hàng', 'Bạn có chắc muốn xóa tất cả sản phẩm?', [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Xóa hết',
-        style: 'destructive',
-        onPress: () => {
-          void clearCart().then((actionError) => {
-            if (actionError) Alert.alert('Không thể xóa giỏ hàng', actionError);
-          });
-        },
-      },
-    ]);
+    setConfirmClearVisible(true);
+  };
+
+  const confirmClearCart = async () => {
+    setActionError(null);
+    setClearingCart(true);
+    const errorMessage = await clearCart();
+    setClearingCart(false);
+    setConfirmClearVisible(false);
+    setActionErrorIfFailed(errorMessage);
   };
 
   const handleUpdateQuantity = (cartItemId: string, quantity: number) => {
-    void updateQuantity(cartItemId, quantity).then((actionError) => {
-      if (actionError) Alert.alert('Không thể cập nhật số lượng', actionError);
-    });
+    setActionError(null);
+    void updateQuantity(cartItemId, quantity).then(setActionErrorIfFailed);
   };
 
   const handleCheckout = () => {
@@ -100,6 +104,9 @@ export default function CartScreen() {
         <Text style={styles.headerTitle}>Giỏ hàng ({cart.length})</Text>
         {cart.length > 0 ? (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Xóa tất cả sản phẩm trong giỏ hàng"
+            disabled={clearingCart}
             hitSlop={8}
             onPress={handleClearCart}
           >
@@ -151,6 +158,11 @@ export default function CartScreen() {
               <Text style={styles.errorText}>{error} · Chạm để thử lại</Text>
             </Pressable>
           ) : null}
+          {actionError ? (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorText}>{actionError}</Text>
+            </View>
+          ) : null}
           <FlatList
             data={cart}
             keyExtractor={(item) => item.id}
@@ -160,13 +172,9 @@ export default function CartScreen() {
               <CartItem
                 item={item}
                 onUpdateQuantity={(q) => {
-                  if (q <= 0) {
-                    confirmDelete(item.id, item.product.name);
-                  } else {
-                    handleUpdateQuantity(item.id, q);
-                  }
+                  handleUpdateQuantity(item.id, q);
                 }}
-                onRemove={() => confirmDelete(item.id, item.product.name)}
+                onRemove={() => handleRemove(item.id)}
                 onToggleSelect={() => toggleSelectItem(item.id)}
               />
             )}
@@ -216,6 +224,45 @@ export default function CartScreen() {
           />
         </>
       )}
+      <Modal
+        animationType="fade"
+        onRequestClose={() => {
+          if (!clearingCart) setConfirmClearVisible(false);
+        }}
+        transparent
+        visible={confirmClearVisible}
+      >
+        <View style={styles.confirmBackdrop}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Xóa toàn bộ giỏ hàng?</Text>
+            <Text style={styles.confirmMessage}>
+              Tất cả sản phẩm sẽ bị xóa khỏi giỏ hàng của bạn.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={clearingCart}
+                onPress={() => setConfirmClearVisible(false)}
+                style={styles.cancelButton}
+              >
+                <Text style={styles.cancelButtonText}>Hủy</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={clearingCart}
+                onPress={() => void confirmClearCart()}
+                style={styles.confirmButton}
+              >
+                {clearingCart ? (
+                  <ActivityIndicator color={colors.white} size="small" />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Xóa tất cả</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -250,6 +297,66 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.danger,
     fontWeight: '600',
+  },
+  confirmBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  confirmCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 16,
+    padding: 20,
+    backgroundColor: colors.white,
+  },
+  confirmTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  confirmMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  cancelButton: {
+    flex: 1,
+    minWidth: 0,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: '#F3F5F7',
+  },
+  cancelButtonText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  confirmButton: {
+    flex: 1,
+    minWidth: 0,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: colors.danger,
+  },
+  confirmButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
   },
   headerRightPlaceholder: {
     width: 36,

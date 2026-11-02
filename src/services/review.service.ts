@@ -485,14 +485,22 @@ export const ReviewService = {
         return { success: false, error: 'Vui lòng đăng nhập để xóa đánh giá.' };
       }
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('reviews')
         .delete()
         .eq('id', reviewId)
-        .eq('user_id', currentUser.id);
+        .eq('user_id', currentUser.id)
+        .select('id')
+        .maybeSingle();
 
       if (error) {
         return { success: false, error: error.message };
+      }
+      if (!data) {
+        return {
+          success: false,
+          error: 'Không thể xóa đánh giá này. Có thể bạn không có quyền hoặc đánh giá đã bị xóa.',
+        };
       }
 
       return { success: true, error: null };

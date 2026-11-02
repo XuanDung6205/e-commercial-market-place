@@ -200,12 +200,20 @@ async function currentUserId(): Promise<string> {
 }
 
 async function getOrCreateCartId(userId: string): Promise<string> {
+  const { data: existingCart, error: selectError } = await supabase
+    .from('carts')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (selectError) throw new Error(selectError.message);
+  if (existingCart) return existingCart.id;
+
   const { data, error } = await supabase
     .from('carts')
-    .upsert({ user_id: userId }, { onConflict: 'user_id' })
+    .insert({ user_id: userId })
     .select('id')
     .single();
-
   if (error) throw new Error(error.message);
   return data.id;
 }
@@ -296,19 +304,25 @@ export const marketplaceStore = {
       if (existingError) throw new Error(existingError.message);
 
       if (existing) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('cart_items')
           .update({ quantity: existing.quantity + quantity, updated_at: new Date().toISOString() })
-          .eq('id', existing.id);
+          .eq('id', existing.id)
+          .select('id')
+          .maybeSingle();
         if (error) throw new Error(error.message);
+        if (!data) throw new Error('Supabase không cho phép cập nhật sản phẩm trong giỏ hàng.');
       } else {
-        const { error } = await supabase.from('cart_items').insert({
-          cart_id: cartId,
-          product_id: product.id,
-          variant_id: productVariant?.id ?? null,
-          quantity,
-        });
+        const { data, error } = await supabase.from('cart_items').insert({
+            cart_id: cartId,
+            product_id: product.id,
+            variant_id: productVariant?.id ?? null,
+            quantity,
+          })
+          .select('id')
+          .maybeSingle();
         if (error) throw new Error(error.message);
+        if (!data) throw new Error('Supabase không xác nhận đã thêm sản phẩm vào giỏ hàng.');
       }
 
       await syncCustomerData(userId, true);
@@ -322,35 +336,59 @@ export const marketplaceStore = {
     if (quantity <= 0) {
       return this.removeFromCart(cartItemId);
     }
+    const previousCart = state.cart;
+    const previousItem = previousCart.find((item) => item.id === cartItemId);
+    if (!previousItem) return 'Không tìm thấy sản phẩm trong giỏ hàng.';
+    state = {
+      ...state,
+      cart: state.cart.map((item) => item.id === cartItemId ? { ...item, quantity } : item),
+    };
+    notify();
+
     try {
-      const userId = await currentUserId();
-      await syncCustomerData(userId);
-      const { error } = await supabase
+      await currentUserId();
+      const { data, error } = await supabase
         .from('cart_items')
         .update({ quantity, updated_at: new Date().toISOString() })
-        .eq('id', cartItemId);
+        .eq('id', cartItemId)
+        .select('id')
+        .maybeSingle();
       if (error) throw new Error(error.message);
-      state = {
-        ...state,
-        cart: state.cart.map((item) => item.id === cartItemId ? { ...item, quantity } : item),
-      };
-      notify();
+      if (!data) {
+        throw new Error('Không thể cập nhật số lượng. Vui lòng kiểm tra quyền truy cập giỏ hàng.');
+      }
       return null;
     } catch (error) {
+      state = { ...state, cart: previousCart };
+      notify();
       return getErrorMessage(error);
     }
   },
 
   async removeFromCart(cartItemId: string): Promise<string | null> {
+    const previousCart = state.cart;
+    if (!previousCart.some((item) => item.id === cartItemId)) {
+      return 'Không tìm thấy sản phẩm trong giỏ hàng.';
+    }
+    state = { ...state, cart: previousCart.filter((item) => item.id !== cartItemId) };
+    notify();
+
     try {
-      const userId = await currentUserId();
-      await syncCustomerData(userId);
-      const { error } = await supabase.from('cart_items').delete().eq('id', cartItemId);
+      await currentUserId();
+      const { data, error } = await supabase
+        .from('cart_items')
+        .delete()
+        .eq('id', cartItemId)
+        .select('id')
+        .maybeSingle();
       if (error) throw new Error(error.message);
-      state = { ...state, cart: state.cart.filter((item) => item.id !== cartItemId) };
-      notify();
+      if (!data) {
+        throw new Error('Không thể xóa sản phẩm. Vui lòng kiểm tra quyền truy cập giỏ hàng.');
+      }
       return null;
     } catch (error) {
+      state = { ...state, cart: previousCart };
+      notify();
       return getErrorMessage(error);
     }
   },
@@ -370,32 +408,55 @@ export const marketplaceStore = {
   },
 
   async clearCart(): Promise<string | null> {
+    const previousCart = state.cart;
+    const itemIds = previousCart.map((item) => item.id);
+    if (itemIds.length === 0) return null;
+    state = { ...state, cart: [] };
+    notify();
+
     try {
       const userId = await currentUserId();
-      await syncCustomerData(userId);
-      const cartId = await getOrCreateCartId(userId);
-      const { error } = await supabase.from('cart_items').delete().eq('cart_id', cartId);
+      const { count, error } = await supabase
+        .from('cart_items')
+        .delete({ count: 'exact' })
+        .in('id', itemIds);
       if (error) throw new Error(error.message);
-      state = { ...state, cart: [] };
-      notify();
+      if (count !== itemIds.length) {
+        await syncCustomerData(userId, true);
+        if (state.cart.length > 0) {
+          throw new Error('Không thể xóa toàn bộ giỏ hàng. Vui lòng kiểm tra quyền truy cập rồi thử lại.');
+        }
+      }
       return null;
     } catch (error) {
+      state = { ...state, cart: previousCart };
+      notify();
       return getErrorMessage(error);
     }
   },
 
   async clearSelectedCart(): Promise<string | null> {
+    const previousCart = state.cart;
+    const selectedIds = previousCart.filter((item) => item.selected).map((item) => item.id);
+    if (selectedIds.length === 0) return null;
+    state = { ...state, cart: previousCart.filter((item) => !selectedIds.includes(item.id)) };
+    notify();
+
     try {
-      const userId = await currentUserId();
-      await syncCustomerData(userId);
-      const selectedIds = state.cart.filter((item) => item.selected).map((item) => item.id);
-      if (selectedIds.length === 0) return null;
-      const { error } = await supabase.from('cart_items').delete().in('id', selectedIds);
+      await currentUserId();
+      const { data, error } = await supabase
+        .from('cart_items')
+        .delete()
+        .in('id', selectedIds)
+        .select('id');
       if (error) throw new Error(error.message);
-      state = { ...state, cart: state.cart.filter((item) => !selectedIds.includes(item.id)) };
-      notify();
+      if (data.length !== selectedIds.length) {
+        throw new Error('Không thể xóa một số sản phẩm đã chọn. Vui lòng kiểm tra quyền truy cập rồi thử lại.');
+      }
       return null;
     } catch (error) {
+      state = { ...state, cart: previousCart };
+      notify();
       return getErrorMessage(error);
     }
   },
@@ -426,61 +487,87 @@ export const marketplaceStore = {
   },
 
   // Favorites Actions
-  async toggleFavorite(productId: string): Promise<string | null> {
+  async toggleFavorite(productId: string, product?: Product): Promise<string | null> {
+    const previousState = state;
+    const exists = state.favoriteIds.includes(productId);
+    let favoriteProduct = product ?? state.favorites.find((item) => item.id === productId);
+
+    if (!exists) {
+      if (!favoriteProduct) {
+        try {
+          favoriteProduct = await ProductService.getById(productId) ?? undefined;
+        } catch (error) {
+          return getErrorMessage(error);
+        }
+      }
+      if (!favoriteProduct) return 'Không tìm thấy sản phẩm đang hoạt động.';
+      state = {
+        ...state,
+        favoriteIds: [...state.favoriteIds, productId],
+        favorites: [favoriteProduct, ...state.favorites.filter((item) => item.id !== productId)],
+      };
+    } else {
+      state = {
+        ...state,
+        favoriteIds: state.favoriteIds.filter((id) => id !== productId),
+        favorites: state.favorites.filter((item) => item.id !== productId),
+      };
+    }
+    notify();
+
     try {
       const userId = await currentUserId();
-      await syncCustomerData(userId);
-      const exists = state.favoriteIds.includes(productId);
       if (exists) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('favorites')
           .delete()
           .eq('user_id', userId)
-          .eq('product_id', productId);
+          .eq('product_id', productId)
+          .select('product_id')
+          .maybeSingle();
         if (error) throw new Error(error.message);
-        state = {
-          ...state,
-          favoriteIds: state.favoriteIds.filter((id) => id !== productId),
-          favorites: state.favorites.filter((product) => product.id !== productId),
-        };
+        if (!data) throw new Error('Không thể xóa sản phẩm khỏi yêu thích.');
       } else {
-        const product = await ProductService.getById(productId);
-        if (!product) throw new Error('Không tìm thấy sản phẩm đang hoạt động.');
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('favorites')
-          .insert({ user_id: userId, product_id: productId });
+          .insert({ user_id: userId, product_id: productId })
+          .select('product_id')
+          .maybeSingle();
         if (error) throw new Error(error.message);
-        state = {
-          ...state,
-          favoriteIds: [...state.favoriteIds, productId],
-          favorites: [product, ...state.favorites],
-        };
+        if (!data) throw new Error('Supabase không xác nhận đã thêm sản phẩm yêu thích.');
       }
-      notify();
       return null;
     } catch (error) {
+      state = previousState;
+      notify();
       return getErrorMessage(error);
     }
   },
 
   async removeFavorite(productId: string): Promise<string | null> {
+    const previousState = state;
+    state = {
+      ...state,
+      favoriteIds: state.favoriteIds.filter((id) => id !== productId),
+      favorites: state.favorites.filter((product) => product.id !== productId),
+    };
+    notify();
+
     try {
       const userId = await currentUserId();
-      await syncCustomerData(userId);
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('favorites')
         .delete()
         .eq('user_id', userId)
-        .eq('product_id', productId);
+        .eq('product_id', productId)
+        .select('product_id')
+        .maybeSingle();
       if (error) throw new Error(error.message);
-      state = {
-        ...state,
-        favoriteIds: state.favoriteIds.filter((id) => id !== productId),
-        favorites: state.favorites.filter((product) => product.id !== productId),
-      };
-      notify();
+      if (!data) throw new Error('Không thể xóa sản phẩm khỏi yêu thích.');
       return null;
     } catch (error) {
+      state = previousState;
+      notify();
       return getErrorMessage(error);
     }
   },
