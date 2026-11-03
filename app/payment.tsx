@@ -1,5 +1,6 @@
 import { colors } from "@/src/constants/colors";
 import { useCart } from "@/src/hooks/useCart";
+import { createCustomerOrder } from "@/src/services/order.service";
 import { formatCurrency } from "@/src/utils/formatCurrency";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -27,9 +28,9 @@ export default function PaymentScreen() {
     tax,
     shippingFee,
     total,
+    voucherCode,
     clearSelectedCart,
   } = useCart();
-  const { placeOrder } = useOrders();
 
   const [recipientName, setRecipientName] = useState("Nguyễn Minh Anh");
   const [phone, setPhone] = useState("0912 345 678");
@@ -52,31 +53,37 @@ export default function PaymentScreen() {
     }
 
     setSubmitting(true);
-    const cartError = await clearSelectedCart();
-    if (cartError) {
+    try {
+      const orderId = await createCustomerOrder({
+        items: selectedItems.map((item) => ({
+          productId: item.product.id,
+          quantity: item.quantity,
+          variantLabel: item.variant,
+        })),
+        recipientName: recipientName.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        paymentMethod,
+        note: note.trim(),
+        voucherCode,
+      });
+
+      const cartError = await clearSelectedCart();
       setSubmitting(false);
-      Alert.alert("Không thể đặt hàng", cartError);
-      return;
+      router.replace({
+        pathname: "/order-success",
+        params: {
+          orderId,
+          ...(cartError ? { cartCleanupError: cartError } : {}),
+        },
+      });
+    } catch (error) {
+      setSubmitting(false);
+      Alert.alert(
+        "Không thể đặt hàng",
+        error instanceof Error ? error.message : "Đã xảy ra lỗi khi lưu đơn hàng.",
+      );
     }
-
-    const order = placeOrder({
-      items: selectedItems.map((item) => ({
-        product: item.product,
-        quantity: item.quantity,
-        variant: item.variant,
-      })),
-      recipientName: recipientName.trim(),
-      phone: phone.trim(),
-      address: address.trim(),
-      paymentMethod,
-      note: note.trim(),
-    });
-
-    setSubmitting(false);
-    router.replace({
-      pathname: "/order-success",
-      params: { orderId: order.id, orderNumber: order.orderNumber },
-    });
   };
 
   return (
