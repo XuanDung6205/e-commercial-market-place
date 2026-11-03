@@ -1,6 +1,13 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { supabase } from "@/src/services/supabase";
 
@@ -23,7 +30,8 @@ export default function AuthCallbackScreen() {
     browserHashParams?.get("code") ||
     null;
   const errorDescription =
-    (typeof routeParams.error_description === "string" && routeParams.error_description) ||
+    (typeof routeParams.error_description === "string" &&
+      routeParams.error_description) ||
     browserParams?.get("error_description") ||
     browserHashParams?.get("error_description") ||
     null;
@@ -60,7 +68,11 @@ export default function AuthCallbackScreen() {
       .catch((error: unknown) => {
         clearTimeout(timeout);
         if (!active) return;
-        setMessage(error instanceof Error ? error.message : "Không thể hoàn tất đăng nhập.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Không thể hoàn tất đăng nhập.",
+        );
       });
 
     return () => {
@@ -70,7 +82,9 @@ export default function AuthCallbackScreen() {
   }, [code, errorDescription]);
 
   const displayError =
-    (errorDescription?.includes("Error getting user email from external provider")
+    (errorDescription?.includes(
+      "Error getting user email from external provider",
+    )
       ? "Facebook không cung cấp email cho Supabase. Hãy bật quyền email trong ứng dụng Facebook và dùng tài khoản Facebook có email đã xác nhận."
       : errorDescription?.includes("Unable to exchange external code")
         ? "Supabase không hoàn tất xác thực với Facebook. Hãy kiểm tra Facebook Client ID, Client Secret và callback URL. Chi tiết lỗi nằm trong Authentication Logs."

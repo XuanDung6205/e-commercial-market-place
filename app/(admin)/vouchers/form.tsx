@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -9,20 +9,20 @@ import {
   Switch,
   SafeAreaView,
   Platform,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+} from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function AddVoucherScreen() {
   const router = useRouter();
 
   // State quản lý form
-  const [code, setCode] = useState('CHAO15');
-  const [discountType, setDiscountType] = useState('Phần trăm (%)');
-  const [value, setValue] = useState('15');
-  const [startDate, setStartDate] = useState('25/10/2026');
-  const [endDate, setEndDate] = useState('31/10/2026');
-  const [minOrder, setMinOrder] = useState('200.000');
+  const [code, setCode] = useState("CHAO15");
+  const [discountType, setDiscountType] = useState("Phần trăm (%)");
+  const [value, setValue] = useState("15");
+  const [startDate, setStartDate] = useState("25/10/2026");
+  const [endDate, setEndDate] = useState("31/10/2026");
+  const [minOrder, setMinOrder] = useState("200.000");
   const [isActive, setIsActive] = useState(true);
 
   const handleSave = () => {
@@ -44,16 +44,27 @@ export default function AddVoucherScreen() {
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
             <Ionicons name="chevron-back" size={24} color="#333" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Thêm voucher</Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           {/* Banner thông báo tím */}
           <View style={styles.infoBanner}>
-            <Ionicons name="ticket-outline" size={22} color="#7c3aed" style={styles.bannerIcon} />
+            <Ionicons
+              name="ticket-outline"
+              size={22}
+              color="#7c3aed"
+              style={styles.bannerIcon}
+            />
             <Text style={styles.bannerText}>
               Tạo ưu đãi mới để khách hàng mua sắm nhiều hơn.
             </Text>
@@ -139,8 +150,8 @@ export default function AddVoucherScreen() {
           <View style={styles.switchRow}>
             <Text style={styles.switchLabel}>Kích hoạt ngay</Text>
             <Switch
-              trackColor={{ false: '#e2e8f0', true: '#00c4cc' }}
-              thumbColor={isActive ? '#ffffff' : '#f4f3f4'}
+              trackColor={{ false: "#e2e8f0", true: "#00c4cc" }}
+              thumbColor={isActive ? "#ffffff" : "#f4f3f4"}
               onValueChange={setIsActive}
               value={isActive}
             />
@@ -149,7 +160,11 @@ export default function AddVoucherScreen() {
 
         {/* Nút Lưu voucher ở dưới cùng */}
         <View style={styles.footer}>
-          <TouchableOpacity style={styles.saveButton} onPress={handleSave} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={handleSave}
+            activeOpacity={0.8}
+          >
             <Text style={styles.saveButtonText}>Lưu voucher</Text>
           </TouchableOpacity>
         </View>
@@ -161,15 +176,15 @@ export default function AddVoucherScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
@@ -178,19 +193,19 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#1e293b',
+    fontWeight: "700",
+    color: "#1e293b",
   },
   scrollContent: {
     paddingHorizontal: 20,
     paddingBottom: 24,
   },
   infoBanner: {
-    flexDirection: 'row',
-    backgroundColor: '#f3e8ff',
+    flexDirection: "row",
+    backgroundColor: "#f3e8ff",
     borderRadius: 12,
     padding: 14,
-    alignItems: 'center',
+    alignItems: "center",
     marginVertical: 12,
   },
   bannerIcon: {
@@ -198,7 +213,7 @@ const styles = StyleSheet.create({
   },
   bannerText: {
     flex: 1,
-    color: '#7e22ce',
+    color: "#7e22ce",
     fontSize: 13,
     lineHeight: 18,
   },
@@ -207,47 +222,47 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: "600",
+    color: "#334155",
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: "#e2e8f0",
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
-    color: '#0f172a',
-    backgroundColor: '#fff',
+    color: "#0f172a",
+    backgroundColor: "#fff",
   },
   helperText: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: "#94a3b8",
     marginTop: 4,
   },
   dropdownInput: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: "#e2e8f0",
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   dropdownText: {
     fontSize: 15,
-    color: '#0f172a',
+    color: "#0f172a",
   },
   row: {
-    flexDirection: 'row',
+    flexDirection: "row",
   },
   dateInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: "#e2e8f0",
     borderRadius: 10,
     paddingHorizontal: 12,
   },
@@ -255,44 +270,44 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#0f172a',
+    color: "#0f172a",
   },
   currencyInputContainer: {
-    position: 'relative',
-    justifyContent: 'center',
+    position: "relative",
+    justifyContent: "center",
   },
   currencySymbol: {
-    position: 'absolute',
+    position: "absolute",
     right: 14,
     fontSize: 15,
-    color: '#64748b',
+    color: "#64748b",
   },
   switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginTop: 20,
   },
   switchLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: "600",
+    color: "#334155",
   },
   footer: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-    backgroundColor: '#fff',
+    borderTopColor: "#f1f5f9",
+    backgroundColor: "#fff",
   },
   saveButton: {
-    backgroundColor: '#00c4cc',
+    backgroundColor: "#00c4cc",
     borderRadius: 10,
     paddingVertical: 14,
-    alignItems: 'center',
+    alignItems: "center",
   },
   saveButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

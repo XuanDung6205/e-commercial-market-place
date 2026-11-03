@@ -1,15 +1,14 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '@/src/services/supabase';
-import { C, Header, Icon, LoadingState, Page, Row } from '@/src/components/customer/CustomerUI';
+import { C, Header, Icon, Page, Row } from '@/src/components/customer/CustomerUI';
 
 type Profile = { full_name?: string | null; phone?: string | null; avatar_url?: string | null };
 
 export default function AccountScreen() {
   const [profile, setProfile] = useState<Profile | null>({ full_name: 'Nguyễn Minh Anh' });
   const [email, setEmail] = useState('khachhang@chomay.vn');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const loadProfile = useCallback(async () => {
@@ -41,14 +40,13 @@ export default function AccountScreen() {
     router.replace('/(auth)/login');
   };
 
-  if (loading) return <Page><Header title="Tài khoản" /><LoadingState /></Page>;
   return (
     <Page>
       <Header title="Tài khoản" />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.profileCard}>
         <View style={styles.avatar}>
-          <Text style={styles.initials}>{(profile?.full_name || email || 'N').trim().slice(0, 1).toUpperCase()}</Text>
+          {profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} /> : <Text style={styles.initials}>{(profile?.full_name || email || 'N').trim().slice(0, 1).toUpperCase()}</Text>}
         </View>
         <View style={styles.profileCopy}>
           <Text style={styles.name}>{profile?.full_name || 'Nguyễn Minh Anh'}</Text>
@@ -77,7 +75,8 @@ export default function AccountScreen() {
 
 const styles = StyleSheet.create({
   profileCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F8FAFB', borderRadius: 12, padding: 14, marginBottom: 24 },
-  avatar: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#DDF7FA', alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#DDF7FA', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImage: { width: '100%', height: '100%' },
   initials: { color: '#008C9E', fontWeight: '700', fontSize: 24 },
   profileCopy: { flex: 1 },
   name: { fontSize: 16, color: C.ink, fontWeight: '700' },
