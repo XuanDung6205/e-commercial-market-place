@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -30,6 +29,11 @@ export default function OrderDetailScreen() {
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [cancelDialog, setCancelDialog] = useState<'confirm' | 'result' | null>(null);
+  const [cancelResult, setCancelResult] = useState({
+    title: '',
+    message: '',
+  });
 
   useEffect(() => {
     let active = true;
@@ -101,26 +105,25 @@ export default function OrderDetailScreen() {
 
   const progressIndex = getStepProgressIndex(order.status);
 
-  const handleCancelOrder = () => {
-    Alert.alert('Hủy đơn hàng', 'Bạn có chắc chắn muốn hủy đơn hàng này không?', [
-      { text: 'Không', style: 'cancel' },
-      {
-        text: 'Hủy đơn',
-        style: 'destructive',
-        onPress: () => { void (async () => {
-          setCancelling(true);
-          try {
-            await cancelMyOrder(order.id);
-            setOrder((current) => current ? { ...current, status: 'cancelled' } : current);
-            Alert.alert('Thành công', 'Đơn hàng của bạn đã được hủy.');
-          } catch (error) {
-            Alert.alert('Chưa hủy được đơn', error instanceof Error ? error.message : 'Vui lòng thử lại.');
-          } finally {
-            setCancelling(false);
-          }
-        })(); },
-      },
-    ]);
+  const handleCancelOrder = async () => {
+    setCancelDialog(null);
+    setCancelling(true);
+    try {
+      await cancelMyOrder(order.id);
+      setOrder((current) => current ? { ...current, status: 'cancelled' } : current);
+      setCancelResult({
+        title: 'Đã hủy đơn hàng',
+        message: 'Đơn hàng của bạn đã được hủy thành công.',
+      });
+    } catch (error) {
+      setCancelResult({
+        title: 'Chưa hủy được đơn',
+        message: error instanceof Error ? error.message : 'Vui lòng thử lại.',
+      });
+    } finally {
+      setCancelling(false);
+      setCancelDialog('result');
+    }
   };
 
   const renderStatusBadge = (status: OrderStatus) => {
@@ -337,7 +340,7 @@ export default function OrderDetailScreen() {
           <Pressable
             accessibilityRole="button"
             disabled={cancelling}
-            onPress={handleCancelOrder}
+            onPress={() => setCancelDialog('confirm')}
             style={[styles.cancelBtn, cancelling && styles.cancelBtnDisabled]}
           >
             <Text style={styles.cancelBtnText}>
@@ -373,6 +376,61 @@ export default function OrderDetailScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+
+      {cancelDialog ? (
+        <View style={styles.dialogOverlay}>
+          <View
+            accessibilityRole="alert"
+            style={styles.dialogCard}
+          >
+            <Text style={styles.dialogTitle}>
+              {cancelDialog === 'confirm' ? 'Hủy đơn hàng' : cancelResult.title}
+            </Text>
+            <Text style={styles.dialogMessage}>
+              {cancelDialog === 'confirm'
+                ? 'Bạn có chắc chắn muốn hủy đơn hàng này không?'
+                : cancelResult.message}
+            </Text>
+            <View style={styles.dialogActions}>
+              {cancelDialog === 'confirm' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setCancelDialog(null)}
+                  style={[styles.dialogButton, styles.dialogSecondaryButton]}
+                >
+                  <Text style={styles.dialogSecondaryButtonText}>Không</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  if (cancelDialog === 'confirm') {
+                    void handleCancelOrder();
+                  } else {
+                    setCancelDialog(null);
+                  }
+                }}
+                style={[
+                  styles.dialogButton,
+                  cancelDialog === 'confirm'
+                    ? styles.dialogDestructiveButton
+                    : styles.dialogPrimaryButton,
+                ]}
+              >
+                <Text
+                  style={
+                    cancelDialog === 'confirm'
+                      ? styles.dialogDestructiveButtonText
+                      : styles.dialogPrimaryButtonText
+                  }
+                >
+                  {cancelDialog === 'confirm' ? 'Hủy đơn' : 'Đóng'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -669,6 +727,74 @@ const styles = StyleSheet.create({
   cancelBtnText: {
     color: '#F04438',
     fontSize: 15,
+    fontWeight: '700',
+  },
+  dialogOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 10,
+    backgroundColor: 'rgba(16, 24, 40, 0.48)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 16,
+    padding: 20,
+    backgroundColor: colors.white,
+  },
+  dialogTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  dialogMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  dialogActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  dialogButton: {
+    minWidth: 88,
+    height: 42,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  dialogSecondaryButton: {
+    backgroundColor: '#F3F5F7',
+  },
+  dialogSecondaryButtonText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dialogDestructiveButton: {
+    backgroundColor: '#F04438',
+  },
+  dialogDestructiveButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  dialogPrimaryButton: {
+    backgroundColor: colors.cyan,
+  },
+  dialogPrimaryButtonText: {
+    color: colors.white,
+    fontSize: 14,
     fontWeight: '700',
   },
   reviewBtn: {
