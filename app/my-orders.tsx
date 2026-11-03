@@ -58,6 +58,7 @@ export default function MyOrdersScreen() {
       case 'confirmed':
       case 'processing':
       case 'shipped':
+      case 'shipping':
         return (
           <View style={[styles.badge, styles.badgeShipped]}>
             <Text style={[styles.badgeText, styles.badgeTextShipped]}>Đang giao</Text>

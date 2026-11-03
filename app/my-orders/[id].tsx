@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -7,14 +7,15 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { formatCurrency } from '@/src/utils/formatCurrency';
 import { cancelMyOrder, getMyOrderById } from '@/src/services/order.service';
-import { Order, OrderStatus } from '@/src/types/models';
+import { ReviewService } from '@/src/services/review.service';
+import { Order, OrderStatus, Review } from '@/src/types/models';
 
 const STEPS = [
   { id: 'pending', label: 'Đã đặt' },
@@ -28,6 +29,9 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [productReviews, setProductReviews] = useState<Record<string, Review>>({});
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsError, setReviewsError] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [cancelDialog, setCancelDialog] = useState<'confirm' | 'result' | null>(null);
   const [cancelResult, setCancelResult] = useState({
@@ -35,16 +39,47 @@ export default function OrderDetailScreen() {
     message: '',
   });
 
-  useEffect(() => {
-    let active = true;
-    void getMyOrderById(id || '')
-      .then((result) => { if (active) { setOrder(result); setLoadError(''); } })
-      .catch((error: unknown) => {
-        if (active) setLoadError(error instanceof Error ? error.message : 'Không tải được đơn hàng.');
-      })
-      .finally(() => { if (active) setLoadedId(id || ''); });
-    return () => { active = false; };
-  }, [id]);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      const orderId = id || '';
+
+      const loadOrderAndReviews = async () => {
+        setReviewsLoading(true);
+        setReviewsError('');
+        try {
+          const result = await getMyOrderById(orderId);
+          if (!active) return;
+          setOrder(result);
+          setLoadError('');
+          setLoadedId(orderId);
+
+          if (result?.status !== 'delivered') {
+            setProductReviews({});
+            setReviewsError('');
+            return;
+          }
+
+          const reviewResult = await ReviewService.getUserReviewsForProducts(
+            result.items.map((item) => item.productId),
+          );
+          if (!active) return;
+          setProductReviews(reviewResult.reviews);
+          setReviewsError(reviewResult.error ?? '');
+        } catch (error) {
+          if (active) {
+            setLoadError(error instanceof Error ? error.message : 'Không tải được đơn hàng.');
+            setLoadedId(orderId);
+          }
+        } finally {
+          if (active) setReviewsLoading(false);
+        }
+      };
+
+      void loadOrderAndReviews();
+      return () => { active = false; };
+    }, [id]),
+  );
 
   if (loadedId !== (id || '')) {
     return (
@@ -95,6 +130,7 @@ export default function OrderDetailScreen() {
       case 'processing':
         return 1; // Đã xác nhận
       case 'shipped':
+      case 'shipping':
         return 2; // Đang giao
       case 'delivered':
         return 3; // Đã giao
@@ -126,6 +162,27 @@ export default function OrderDetailScreen() {
     }
   };
 
+  const openProductReview = (item: Order['items'][number]) => {
+    const review = productReviews[item.productId];
+    router.push({
+      pathname: '/feedback',
+      params: {
+        orderId: order.id,
+        productId: item.productId,
+        productName: item.productName,
+        image: item.image,
+        ...(item.variant ? { variant: item.variant } : {}),
+        ...(review
+          ? {
+              reviewId: review.id,
+              initialRating: String(review.rating),
+              initialComment: review.comment,
+            }
+          : {}),
+      },
+    });
+  };
+
   const renderStatusBadge = (status: OrderStatus) => {
     switch (status) {
       case 'pending':
@@ -136,6 +193,7 @@ export default function OrderDetailScreen() {
         );
       case 'confirmed':
       case 'shipped':
+      case 'shipping':
         return (
           <View style={[styles.badge, styles.badgeShipped]}>
             <Text style={[styles.badgeText, styles.badgeTextShipped]}>Đang giao</Text>
@@ -262,6 +320,11 @@ export default function OrderDetailScreen() {
         {/* Section: Sản phẩm matching Figma */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionHeading}>Sản phẩm ({order.items.length})</Text>
+          {order.status === 'delivered' && reviewsError ? (
+            <Text accessibilityRole="alert" style={styles.reviewsError}>
+              Không tải được trạng thái đánh giá: {reviewsError}
+            </Text>
+          ) : null}
           {order.items.map((item) => (
             <View key={item.id} style={styles.itemRow}>
               <Image source={{ uri: item.image }} style={styles.itemImage} resizeMode="cover" />
@@ -274,6 +337,36 @@ export default function OrderDetailScreen() {
                 </Text>
                 <Text style={styles.itemPrice}>{formatCurrency(item.price)}</Text>
               </View>
+              {order.status === 'delivered' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    productReviews[item.productId]
+                      ? `Chỉnh sửa đánh giá ${item.productName}`
+                      : `Đánh giá ${item.productName}`
+                  }
+                  disabled={reviewsLoading || Boolean(reviewsError) || !item.productId}
+                  onPress={() => openProductReview(item)}
+                  style={[
+                    styles.itemReviewButton,
+                    productReviews[item.productId] && styles.itemReviewButtonEdit,
+                    (reviewsLoading || Boolean(reviewsError)) && styles.itemReviewButtonDisabled,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.itemReviewButtonText,
+                      productReviews[item.productId] && styles.itemReviewButtonEditText,
+                    ]}
+                  >
+                    {reviewsLoading
+                      ? 'Đang tải'
+                      : productReviews[item.productId]
+                        ? 'Chỉnh sửa'
+                        : 'Đánh giá'}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ))}
         </View>
@@ -349,32 +442,6 @@ export default function OrderDetailScreen() {
           </Pressable>
         ) : null}
 
-        {order.status === 'delivered' ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              const first = order.items[0];
-              router.push({
-                pathname: '/feedback',
-                params: {
-                  orderId: order.id,
-                  productId: first?.productId || '',
-                  productName: first?.productName || '',
-                  image: first?.image || '',
-                  variant: first?.variant || '',
-                },
-              });
-            }}
-            style={styles.reviewBtn}
-          >
-            <SymbolView
-              name={{ ios: 'star.fill', android: 'star', web: 'star' }}
-              tintColor={colors.white}
-              size={17}
-            />
-            <Text style={styles.reviewBtnText}>Đánh giá</Text>
-          </Pressable>
-        ) : null}
       </ScrollView>
 
       {cancelDialog ? (
@@ -654,6 +721,38 @@ const styles = StyleSheet.create({
     color: colors.cyan,
     marginTop: 4,
   },
+  itemReviewButton: {
+    minWidth: 76,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 9,
+    marginLeft: 8,
+    borderRadius: 8,
+    backgroundColor: colors.cyan,
+  },
+  itemReviewButtonEdit: {
+    backgroundColor: colors.paleCyan,
+    borderWidth: 1,
+    borderColor: colors.cyan,
+  },
+  itemReviewButtonDisabled: {
+    opacity: 0.6,
+  },
+  itemReviewButtonText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  itemReviewButtonEditText: {
+    color: colors.cyan,
+  },
+  reviewsError: {
+    color: colors.danger,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -795,20 +894,6 @@ const styles = StyleSheet.create({
   dialogPrimaryButtonText: {
     color: colors.white,
     fontSize: 14,
-    fontWeight: '700',
-  },
-  reviewBtn: {
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: colors.cyan,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  reviewBtnText: {
-    color: colors.white,
-    fontSize: 15,
     fontWeight: '700',
   },
   notFoundContainer: {

@@ -4,28 +4,42 @@ import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '@/src/services/supabase';
 import { C, Header, Icon, Page, Row } from '@/src/components/customer/CustomerUI';
 
-type Profile = { full_name?: string | null; phone?: string | null; avatar_url?: string | null };
+type Profile = {
+  full_name?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  avatar_url?: string | null;
+};
 
 export default function AccountScreen() {
-  const [profile, setProfile] = useState<Profile | null>({ full_name: 'Nguyễn Minh Anh' });
-  const [email, setEmail] = useState('khachhang@chomay.vn');
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
 
   const loadProfile = useCallback(async () => {
     setError('');
+    setProfile(null);
+    setEmail('');
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
       if (user) {
-        setEmail(user.email ?? 'khachhang@chomay.vn');
-        const { data } = await supabase.from('profiles').select('full_name, phone, avatar_url').eq('id', user.id).maybeSingle();
+        setEmail(user.email ?? '');
+        const { data, error: profileError } = await supabase
+          .from('profiles')
+          .select('full_name, phone, address, avatar_url')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (profileError) throw profileError;
         setProfile(data ?? { full_name: String(user.user_metadata?.full_name ?? 'Nguyễn Minh Anh') });
       } else {
-        setEmail('khachhang@chomay.vn');
-        setProfile({ full_name: 'Nguyễn Minh Anh' });
+        setEmail('');
+        setProfile(null);
       }
-    } catch {
-      setEmail('khachhang@chomay.vn');
-      setProfile({ full_name: 'Nguyễn Minh Anh' });
+    } catch (loadError) {
+      setProfile(null);
+      setEmail('');
+      setError(loadError instanceof Error ? loadError.message : 'Không tải được thông tin tài khoản.');
     }
   }, []);
 
@@ -60,7 +74,12 @@ export default function AccountScreen() {
       <View style={styles.menu}>
         <Row icon="orders" title="Đơn hàng của tôi" subtitle="Theo dõi và quản lý đơn hàng" onPress={() => router.push('/my-orders')} />
         <Row icon="heart" title="Sản phẩm yêu thích" onPress={() => router.push('/(tabs)/favorites')} />
-        <Row icon="pin" title="Địa chỉ giao hàng" subtitle="25 Nguyễn Thị Minh Khai, Quận 1, TP. HCM" onPress={() => Alert.alert('Địa chỉ giao hàng', 'Địa chỉ mặc định: 25 Nguyễn Thị Minh Khai, P. Bến Nghé, Quận 1, TP. Hồ Chí Minh')} />
+        <Row
+          icon="pin"
+          title="Địa chỉ giao hàng"
+          subtitle={profile?.address?.trim() || 'Chưa cập nhật địa chỉ'}
+          onPress={() => router.push('/profile/edit')}
+        />
         <Row icon="card" title="Phương thức thanh toán" subtitle="COD, Chuyển khoản, Ví điện tử" onPress={() => Alert.alert('Thanh toán', 'Phương thức thanh toán được chọn khi đặt hàng.')} />
         <Row icon="bell" title="Thông báo" onPress={() => router.push('/(tabs)/inbox')} />
         <Row icon="help" title="Trợ giúp và hỗ trợ" onPress={() => Alert.alert('Trợ giúp', 'Liên hệ Chợ Mây qua hotline: 1900 6868')} />

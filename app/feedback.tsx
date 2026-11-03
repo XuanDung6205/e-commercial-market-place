@@ -56,6 +56,7 @@ export default function FeedbackScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [submissionComplete, setSubmissionComplete] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -113,9 +114,7 @@ export default function FeedbackScreen() {
           return;
         }
 
-        Alert.alert('Thành công', 'Đánh giá của bạn đã được cập nhật.', [
-          { text: 'OK', onPress: () => router.back() },
-        ]);
+        setSubmissionComplete(true);
       } else {
         // Create new review in Supabase
         const { review, error } = await ReviewService.createReview({
@@ -123,7 +122,7 @@ export default function FeedbackScreen() {
           rating,
           comment: comment.trim(),
           tags: selectedTags,
-          orderId: params.orderId || null,
+          orderId: params.orderId ?? '',
         });
 
         setSubmitting(false);
@@ -133,9 +132,7 @@ export default function FeedbackScreen() {
           return;
         }
 
-        Alert.alert('Cảm ơn bạn!', 'Đánh giá của bạn đã được ghi nhận thành công.', [
-          { text: 'Xác nhận', onPress: () => router.back() },
-        ]);
+        setSubmissionComplete(true);
       }
     } catch (err) {
       setSubmitting(false);
@@ -143,6 +140,42 @@ export default function FeedbackScreen() {
       Alert.alert('Lỗi kết nối', msg);
     }
   };
+
+  if (submissionComplete) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <StatusBar style="dark" />
+        <View style={styles.successContent}>
+          <SymbolView
+            name={{ ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }}
+            tintColor={colors.success}
+            size={68}
+          />
+          <Text style={styles.successTitle}>
+            {isEditing ? 'Cập nhật đánh giá thành công' : 'Cảm ơn bạn!'}
+          </Text>
+          <Text style={styles.successMessage}>
+            {isEditing
+              ? 'Đánh giá của bạn đã được cập nhật.'
+              : 'Đánh giá của bạn đã được ghi nhận và đang chờ duyệt.'}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              if (!params.productId) return;
+              router.replace({
+                pathname: '/product/[id]',
+                params: { id: params.productId },
+              });
+            }}
+            style={styles.confirmButton}
+          >
+            <Text style={styles.confirmButtonText}>Xác nhận</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -315,6 +348,40 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#F8FAFB',
+  },
+  successContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  successTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+  successMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 28,
+  },
+  confirmButton: {
+    width: '100%',
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: colors.cyan,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmButtonText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '700',
   },
   header: {
     height: 52,

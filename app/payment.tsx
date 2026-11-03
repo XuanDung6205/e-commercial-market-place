@@ -5,7 +5,8 @@ import { formatCurrency } from "@/src/utils/formatCurrency";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/src/services/supabase";
 import {
   Alert,
   Image,
@@ -32,22 +33,79 @@ export default function PaymentScreen() {
     clearSelectedCart,
   } = useCart();
 
-  const [recipientName, setRecipientName] = useState("Nguyễn Minh Anh");
-  const [phone, setPhone] = useState("0912 345 678");
-  const [address, setAddress] = useState(
-    "25 Nguyễn Thị Minh Khai, P. Bến Nghé, Quận 1, TP. Hồ Chí Minh",
-  );
+  const [recipientName, setRecipientName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileLoadError, setProfileLoadError] = useState("");
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("cod");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [deliveryInfoValidationAttempted, setDeliveryInfoValidationAttempted] =
+    useState(false);
+
+  const missingPhone = !phone.trim();
+  const missingAddress = !address.trim();
+  const deliveryInfoError = deliveryInfoValidationAttempted
+    ? missingPhone && missingAddress
+      ? "Vui lòng cập nhật số điện thoại và địa chỉ giao hàng trước khi đặt hàng."
+      : missingPhone
+        ? "Vui lòng cập nhật số điện thoại trước khi đặt hàng."
+        : missingAddress
+          ? "Vui lòng cập nhật địa chỉ giao hàng trước khi đặt hàng."
+          : ""
+    : "";
+
+  useEffect(() => {
+    let active = true;
+
+    const loadCustomerProfile = async () => {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!user) return;
+
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("full_name, phone, address")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (profileError) throw profileError;
+        if (!active) return;
+
+        setRecipientName(profile?.full_name?.trim() || String(user.user_metadata?.full_name ?? ""));
+        setPhone(profile?.phone?.trim() ?? "");
+        setAddress(profile?.address?.trim() ?? "");
+      } catch (error) {
+        if (active) {
+          setProfileLoadError(
+            error instanceof Error
+              ? `Không tải được thông tin tài khoản: ${error.message}`
+              : "Không tải được thông tin tài khoản. Vui lòng nhập thông tin giao hàng.",
+          );
+        }
+      } finally {
+        if (active) setProfileLoading(false);
+      }
+    };
+
+    void loadCustomerProfile();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handlePlaceOrder = async () => {
     if (selectedItems.length === 0) {
       Alert.alert("Lỗi", "Không có sản phẩm nào được chọn để thanh toán.");
       return;
     }
-    if (!recipientName.trim() || !phone.trim() || !address.trim()) {
+
+    setDeliveryInfoValidationAttempted(true);
+    if (missingPhone || missingAddress) return;
+
+    if (!recipientName.trim()) {
       Alert.alert("Lỗi", "Vui lòng điền đầy đủ thông tin giao hàng.");
       return;
     }
@@ -141,6 +199,9 @@ export default function PaymentScreen() {
               </Text>
             </Pressable>
           </View>
+          {profileLoadError ? (
+            <Text style={styles.profileLoadError}>{profileLoadError}</Text>
+          ) : null}
 
           {isEditingAddress ? (
             <View style={styles.addressForm}>
@@ -365,6 +426,12 @@ export default function PaymentScreen() {
         </View>
       </ScrollView>
 
+      {deliveryInfoError ? (
+        <Text accessibilityRole="alert" style={styles.deliveryInfoError}>
+          {deliveryInfoError}
+        </Text>
+      ) : null}
+
       {/* Bottom Sticky Action */}
       <View style={styles.bottomBar}>
         <View style={styles.bottomLeft}>
@@ -373,15 +440,15 @@ export default function PaymentScreen() {
         </View>
         <Pressable
           accessibilityRole="button"
-          disabled={submitting}
+          disabled={submitting || profileLoading}
           onPress={handlePlaceOrder}
           style={[
             styles.submitButton,
-            submitting && styles.submitButtonDisabled,
+            (submitting || profileLoading) && styles.submitButtonDisabled,
           ]}
         >
           <Text style={styles.submitButtonText}>
-            {submitting ? "Đang đặt hàng..." : "Đặt hàng"}
+            {profileLoading ? "Đang tải thông tin..." : submitting ? "Đang đặt hàng..." : "Đặt hàng"}
           </Text>
         </Pressable>
       </View>
@@ -465,6 +532,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.muted,
     lineHeight: 19,
+  },
+  profileLoadError: {
+    fontSize: 12,
+    color: colors.danger,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  deliveryInfoError: {
+    color: colors.danger,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    backgroundColor: colors.white,
   },
   addressForm: {
     gap: 8,
