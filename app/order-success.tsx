@@ -1,15 +1,27 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
+import { getMyOrderById } from '@/src/services/order.service';
 
 export default function OrderSuccessScreen() {
   const { orderId, orderNumber } = useLocalSearchParams<{
     orderId?: string;
     orderNumber?: string;
   }>();
+  const [savedOrderNumber, setSavedOrderNumber] = useState(orderNumber ?? '');
+
+  useEffect(() => {
+    if (!orderId || orderNumber) return;
+    let active = true;
+    void getMyOrderById(orderId).then((order) => {
+      if (active && order) setSavedOrderNumber(order.orderNumber);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [orderId, orderNumber]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -26,7 +38,7 @@ export default function OrderSuccessScreen() {
 
         <Text style={styles.title}>Đặt hàng thành công!</Text>
         <Text style={styles.orderNumberText}>
-          Mã đơn hàng: #{orderNumber || '2027'}
+          {savedOrderNumber ? `Mã đơn hàng: #${savedOrderNumber}` : 'Đơn hàng đã được lưu'}
         </Text>
         <Text style={styles.subtitle}>
           Cảm ơn bạn đã mua sắm tại Chợ Mây. Đơn hàng của bạn đã được tiếp nhận và đang được xử lý.

@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -14,6 +15,8 @@ import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { formatCurrency } from '@/src/utils/formatCurrency';
 import { MOCK_PRODUCTS, useCart, useFavorites, useReviews } from '@/src/store/marketplaceStore';
+import { supabase } from '@/src/services/supabase';
+import type { Product } from '@/src/types/models';
 import { RatingSummary } from '@/src/components/product/RatingSummary';
 import { ReviewItem } from '@/src/components/product/ReviewItem';
 
@@ -27,7 +30,49 @@ const SORT_TABS: { id: SortOption; label: string }[] = [
 
 export default function ProductDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const product = MOCK_PRODUCTS.find((p) => p.id === id) || MOCK_PRODUCTS[0];
+  const localProduct = MOCK_PRODUCTS.find((p) => p.id === id);
+  const [remoteProduct, setRemoteProduct] = useState<Product | null>(null);
+  const [failedProductId, setFailedProductId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id || localProduct) return;
+    let active = true;
+    void (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, name, description, price, compare_at_price, stock_quantity, product_images(image_url)')
+          .eq('id', id)
+          .eq('status', 'active')
+          .maybeSingle();
+        if (!active) return;
+        if (error || !data) {
+          setFailedProductId(id);
+          return;
+        }
+        const image = data.product_images?.[0]?.image_url ?? '';
+        setRemoteProduct({
+          id: data.id,
+          name: data.name,
+          description: data.description ?? '',
+          price: Number(data.price),
+          compareAtPrice: data.compare_at_price == null ? undefined : Number(data.compare_at_price),
+          image,
+          images: data.product_images?.map((item) => item.image_url) ?? [],
+          rating: 0,
+          reviewCount: 0,
+          stock: data.stock_quantity,
+        });
+      } catch {
+        if (active) setFailedProductId(id);
+      }
+    })();
+    return () => { active = false; };
+  }, [id, localProduct]);
+
+  const currentRemoteProduct = remoteProduct?.id === id ? remoteProduct : null;
+  const product = currentRemoteProduct ?? localProduct ?? MOCK_PRODUCTS[0];
+  const productLoading = !localProduct && !currentRemoteProduct && failedProductId !== id;
 
   const { addToCart, totalQuantity } = useCart();
   const { isFavorite, toggleFavorite } = useFavorites();
@@ -44,6 +89,7 @@ export default function ProductDetailScreen() {
   // If this product has no specific reviews yet, provide fallback reviews so the UI is always populated
   const reviews = useMemo(() => {
     if (rawReviews.length > 0) return rawReviews;
+    if (!localProduct) return [];
     return [
       {
         id: `fb-1-${product.id}`,
@@ -68,7 +114,7 @@ export default function ProductDetailScreen() {
         tags: ['Giá cả hợp lý'],
       },
     ];
-  }, [rawReviews, product.id]);
+  }, [rawReviews, product.id, localProduct]);
 
   const sortedReviews = useMemo(() => {
     const list = [...reviews];
@@ -80,6 +126,13 @@ export default function ProductDetailScreen() {
     }
     return list; // 'newest' default order
   }, [reviews, sortOption]);
+
+  if (productLoading) {
+    return <SafeAreaView style={styles.safeArea} edges={['top']}><View style={styles.notFound}><ActivityIndicator color={colors.cyan} /><Text style={styles.notFoundText}>Đang tải sản phẩm...</Text></View></SafeAreaView>;
+  }
+  if (!localProduct && !currentRemoteProduct) {
+    return <SafeAreaView style={styles.safeArea} edges={['top']}><View style={styles.notFound}><Text style={styles.notFoundText}>Không tìm thấy sản phẩm hoặc sản phẩm đã ngừng bán.</Text><Pressable onPress={() => router.back()}><Text style={styles.backText}>Quay lại</Text></Pressable></View></SafeAreaView>;
+  }
 
   const handleAddToCart = () => {
     addToCart(product, quantity, selectedVariant);
@@ -332,6 +385,9 @@ export default function ProductDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  notFound: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
+  notFoundText: { color: colors.muted, fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  backText: { color: colors.cyan, fontSize: 14, fontWeight: '700' },
   safeArea: {
     flex: 1,
     backgroundColor: '#F8FAFB',

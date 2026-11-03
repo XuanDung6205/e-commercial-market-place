@@ -1,13 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { formatCurrency } from '@/src/utils/formatCurrency';
-import { useOrders } from '@/src/store/marketplaceStore';
-import { OrderStatus } from '@/src/types/models';
+import { getMyOrders } from '@/src/services/order.service';
+import { Order, OrderStatus } from '@/src/types/models';
 
 type FilterTab = 'all' | 'pending' | 'shipped' | 'delivered';
 
@@ -19,13 +19,30 @@ const TABS: { id: FilterTab; label: string }[] = [
 ];
 
 export default function MyOrdersScreen() {
-  const { orders } = useOrders();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
+
+  const loadOrders = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setOrders(await getMyOrders());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Không tải được danh sách đơn hàng.');
+      setOrders([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { void loadOrders(); }, [loadOrders]));
 
   const filteredOrders = useMemo(() => {
     if (activeTab === 'all') return orders;
     if (activeTab === 'shipped') {
-      return orders.filter((o) => o.status === 'shipped' || o.status === 'confirmed');
+      return orders.filter((o) => o.status === 'shipped' || o.status === 'confirmed' || o.status === 'processing');
     }
     return orders.filter((o) => o.status === activeTab);
   }, [orders, activeTab]);
@@ -39,6 +56,7 @@ export default function MyOrdersScreen() {
           </View>
         );
       case 'confirmed':
+      case 'processing':
       case 'shipped':
         return (
           <View style={[styles.badge, styles.badgeShipped]}>
@@ -102,7 +120,16 @@ export default function MyOrdersScreen() {
       </View>
 
       {/* Order List */}
-      <FlatList
+      {loading ? (
+        <View style={styles.loadState}><Text style={styles.emptySubtitle}>Đang tải đơn hàng...</Text></View>
+      ) : error ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptySubtitle}>{error}</Text>
+          <Pressable accessibilityRole="button" onPress={() => void loadOrders()} style={styles.emptyButton}>
+            <Text style={styles.emptyButtonText}>Thử lại</Text>
+          </Pressable>
+        </View>
+      ) : <FlatList
         data={filteredOrders}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
@@ -180,7 +207,7 @@ export default function MyOrdersScreen() {
             </Pressable>
           </View>
         }
-      />
+      />}
     </SafeAreaView>
   );
 }
@@ -362,6 +389,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 32,
   },
+  loadState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyCircle: {
     width: 96,
     height: 96,

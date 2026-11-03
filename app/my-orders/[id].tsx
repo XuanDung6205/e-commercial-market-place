@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
@@ -14,8 +14,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { formatCurrency } from '@/src/utils/formatCurrency';
-import { useOrders } from '@/src/store/marketplaceStore';
-import { OrderStatus } from '@/src/types/models';
+import { cancelMyOrder, getMyOrderById } from '@/src/services/order.service';
+import { Order, OrderStatus } from '@/src/types/models';
 
 const STEPS = [
   { id: 'pending', label: 'Đã đặt' },
@@ -26,10 +26,30 @@ const STEPS = [
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getOrderById, cancelOrder } = useOrders();
-  const order = getOrderById(id || '');
-
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void getMyOrderById(id || '')
+      .then((result) => { if (active) { setOrder(result); setLoadError(''); } })
+      .catch((error: unknown) => {
+        if (active) setLoadError(error instanceof Error ? error.message : 'Không tải được đơn hàng.');
+      })
+      .finally(() => { if (active) setLoadedId(id || ''); });
+    return () => { active = false; };
+  }, [id]);
+
+  if (loadedId !== (id || '')) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <StatusBar style="dark" />
+        <View style={styles.notFoundContainer}><Text style={styles.notFoundText}>Đang tải đơn hàng...</Text></View>
+      </SafeAreaView>
+    );
+  }
 
   if (!order) {
     return (
@@ -54,9 +74,7 @@ export default function OrderDetailScreen() {
         </View>
         <View style={styles.notFoundContainer}>
           <Text style={styles.notFoundTitle}>Không tìm thấy đơn hàng</Text>
-          <Text style={styles.notFoundText}>
-            Đơn hàng #{id} không tồn tại hoặc đã bị xóa.
-          </Text>
+          <Text style={styles.notFoundText}>{loadError || `Đơn hàng #${id} không tồn tại hoặc bạn không có quyền xem.`}</Text>
           <Pressable onPress={() => router.replace('/my-orders')} style={styles.backLinkBtn}>
             <Text style={styles.backLinkText}>Quay lại danh sách</Text>
           </Pressable>
@@ -70,6 +88,7 @@ export default function OrderDetailScreen() {
       case 'pending':
         return 0; // Đã đặt
       case 'confirmed':
+      case 'processing':
         return 1; // Đã xác nhận
       case 'shipped':
         return 2; // Đang giao
@@ -88,14 +107,18 @@ export default function OrderDetailScreen() {
       {
         text: 'Hủy đơn',
         style: 'destructive',
-        onPress: () => {
+        onPress: () => { void (async () => {
           setCancelling(true);
-          setTimeout(() => {
-            cancelOrder(order.id);
-            setCancelling(false);
+          try {
+            await cancelMyOrder(order.id);
+            setOrder((current) => current ? { ...current, status: 'cancelled' } : current);
             Alert.alert('Thành công', 'Đơn hàng của bạn đã được hủy.');
-          }, 300);
-        },
+          } catch (error) {
+            Alert.alert('Chưa hủy được đơn', error instanceof Error ? error.message : 'Vui lòng thử lại.');
+          } finally {
+            setCancelling(false);
+          }
+        })(); },
       },
     ]);
   };

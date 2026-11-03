@@ -1,6 +1,6 @@
-import 'react-native-url-polyfill/auto';
-import { createClient } from '@supabase/supabase-js';
-import 'expo-sqlite/localStorage/install';
+import { createClient } from "@supabase/supabase-js";
+import "expo-sqlite/localStorage/install";
+import "react-native-url-polyfill/auto";
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseKey =
@@ -8,7 +8,7 @@ const supabaseKey =
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase URL or public API key in .env.local.');
+  throw new Error("Missing Supabase URL or public API key in .env.local.");
 }
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
@@ -16,6 +16,6 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
-    flowType: 'pkce',
+    flowType: "pkce",
   },
 });

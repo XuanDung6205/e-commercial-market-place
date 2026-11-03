@@ -22,7 +22,7 @@ export type CartItem = {
   selected: boolean;
 };
 
-export type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
 
 export type OrderItem = {
   id: string;

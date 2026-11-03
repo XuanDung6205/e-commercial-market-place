@@ -320,7 +320,8 @@ const INITIAL_STATE: StoreState = {
   discountRate: 0,
 };
 
-let state: StoreState = INITIAL_STATE;
+// Keep the cart and order history empty until the signed-in customer loads real backend data.
+let state: StoreState = { ...INITIAL_STATE, cart: [], orders: [] };
 const listeners = new Set<() => void>();
 
 function notify() {

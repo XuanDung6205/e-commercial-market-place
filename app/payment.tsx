@@ -16,13 +16,12 @@ import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { formatCurrency } from '@/src/utils/formatCurrency';
 import { useCart } from '@/src/hooks/useCart';
-import { useOrders } from '@/src/store/marketplaceStore';
+import { createCustomerOrder } from '@/src/services/order.service';
 
 type PaymentMethodType = 'cod' | 'bank_transfer' | 'e_wallet';
 
 export default function PaymentScreen() {
-  const { selectedItems, subtotal, discount, tax, shippingFee, total } = useCart();
-  const { placeOrder } = useOrders();
+  const { selectedItems, subtotal, discount, tax, shippingFee, total, voucherCode, clearSelectedCart } = useCart();
 
   const [recipientName, setRecipientName] = useState('Nguyễn Minh Anh');
   const [phone, setPhone] = useState('0912 345 678');
@@ -34,7 +33,7 @@ export default function PaymentScreen() {
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (selectedItems.length === 0) {
       Alert.alert('Lỗi', 'Không có sản phẩm nào được chọn để thanh toán.');
       return;
@@ -45,26 +44,33 @@ export default function PaymentScreen() {
     }
 
     setSubmitting(true);
-    setTimeout(() => {
-      const order = placeOrder({
+    try {
+      const orderId = await createCustomerOrder({
         items: selectedItems.map((item) => ({
-          product: item.product,
+          productId: item.product.id,
           quantity: item.quantity,
-          variant: item.variant,
+          variantLabel: item.variant,
         })),
         recipientName: recipientName.trim(),
         phone: phone.trim(),
         address: address.trim(),
         paymentMethod,
         note: note.trim(),
+        voucherCode,
       });
-
-      setSubmitting(false);
+      clearSelectedCart();
       router.replace({
         pathname: '/order-success',
-        params: { orderId: order.id, orderNumber: order.orderNumber },
+        params: { orderId },
       });
-    }, 400);
+    } catch (error) {
+      Alert.alert(
+        'Chưa đặt được hàng',
+        error instanceof Error ? error.message : 'Vui lòng kiểm tra kết nối và thử lại.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
