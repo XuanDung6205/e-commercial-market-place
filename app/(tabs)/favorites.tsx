@@ -3,6 +3,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -20,18 +21,24 @@ import { useFavorites } from '@/src/hooks/useFavorites';
 import { Product } from '@/src/types/models';
 
 export default function FavoritesScreen() {
-  const { favorites, removeFavorite, count } = useFavorites();
+  const { favorites, removeFavorite, count, loading, error, refresh } = useFavorites();
   const { addToCart, totalQuantity } = useCart();
   const [keyword, setKeyword] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [addedId, setAddedId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const filteredFavorites = favorites.filter((item) =>
     item.name.toLowerCase().includes(keyword.trim().toLowerCase())
   );
 
-  const handleAddToCart = (product: Product) => {
-    addToCart(product, 1);
+  const handleAddToCart = async (product: Product) => {
+    setActionError(null);
+    const errorMessage = await addToCart(product, 1);
+    if (errorMessage) {
+      setActionError(errorMessage);
+      return;
+    }
     setAddedId(product.id);
     setTimeout(() => {
       setAddedId(null);
@@ -39,9 +46,27 @@ export default function FavoritesScreen() {
   };
 
   const handleRemove = (product: Product) => {
+    const remove = () => {
+      setActionError(null);
+      void removeFavorite(product.id).then((errorMessage) => {
+        if (errorMessage) setActionError(errorMessage);
+      });
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm(`Bỏ "${product.name}" khỏi danh sách yêu thích?`)) {
+        remove();
+      }
+      return;
+    }
+
     Alert.alert('Bỏ yêu thích', `Bỏ "${product.name}" khỏi danh sách yêu thích?`, [
       { text: 'Hủy', style: 'cancel' },
-      { text: 'Bỏ lưu', style: 'destructive', onPress: () => removeFavorite(product.id) },
+      {
+        text: 'Bỏ lưu',
+        style: 'destructive',
+        onPress: remove,
+      },
     ]);
   };
 
@@ -74,7 +99,19 @@ export default function FavoritesScreen() {
         </Pressable>
       </View>
 
-      {count === 0 ? (
+      {loading && count === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyTitle}>Đang tải sản phẩm yêu thích...</Text>
+        </View>
+      ) : error && count === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyTitle}>Không thể tải danh sách yêu thích</Text>
+          <Text style={styles.emptySubtitle}>{error}</Text>
+          <Pressable onPress={() => void refresh()} style={styles.emptyButton}>
+            <Text style={styles.emptyButtonText}>Thử lại</Text>
+          </Pressable>
+        </View>
+      ) : count === 0 ? (
         /* Empty State matching Figma image 1 */
         <View style={styles.emptyContainer}>
           <View style={styles.emptyCircle}>
@@ -99,6 +136,16 @@ export default function FavoritesScreen() {
       ) : (
         /* Populated List matching Figma image 1 */
         <View style={styles.content}>
+          {actionError ? (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorText}>{actionError}</Text>
+            </View>
+          ) : null}
+          {error ? (
+            <Pressable onPress={() => void refresh()} style={styles.errorBanner}>
+              <Text style={styles.errorText}>{error} · Chạm để thử lại</Text>
+            </Pressable>
+          ) : null}
           {/* Search Bar */}
           <View style={styles.searchBar}>
             <SymbolView
@@ -207,7 +254,7 @@ export default function FavoritesScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="Thêm vào giỏ"
                         hitSlop={8}
-                        onPress={() => handleAddToCart(item)}
+                        onPress={() => void handleAddToCart(item)}
                         style={[styles.addButton, isAdded && styles.addButtonSuccess]}
                       >
                         {isAdded ? (
@@ -289,6 +336,8 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
+  errorBanner: { backgroundColor: '#FEE4E2', padding: 10, borderRadius: 8, marginBottom: 10 },
+  errorText: { color: colors.danger, fontSize: 12, textAlign: 'center' },
   searchBar: {
     height: 44,
     backgroundColor: '#F3F5F7',

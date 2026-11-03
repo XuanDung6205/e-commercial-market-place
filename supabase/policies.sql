@@ -205,7 +205,7 @@ create policy app_order_items_admin on public.order_items for all to authenticat
 -- Customers submit pending reviews; Admin moderates them.
 revoke all on public.reviews from anon, authenticated;
 grant select on public.reviews to anon, authenticated;
-grant insert, update on public.reviews to authenticated;
+grant insert, update, delete on public.reviews to authenticated;
 create policy app_reviews_read on public.reviews for select to anon, authenticated
   using (status = 'approved' or user_id = (select auth.uid())
     or (select private.is_admin()));
@@ -214,10 +214,13 @@ create policy app_reviews_insert on public.reviews for insert to authenticated
     and moderated_by is null and moderated_at is null
     and (select private.is_active_customer()));
 create policy app_reviews_update_own on public.reviews for update to authenticated
-  using (user_id = (select auth.uid()) and status = 'pending')
-  with check (user_id = (select auth.uid()) and status = 'pending'
-    and moderated_by is null and moderated_at is null
-    and (select private.is_active_customer()));
+using (user_id = (select auth.uid()) and status = 'pending')
+with check (user_id = (select auth.uid()) and status = 'pending'
+  and moderated_by is null and moderated_at is null
+  and (select private.is_active_customer()));
+create policy app_reviews_delete_own on public.reviews
+for delete to authenticated
+using (user_id = (select auth.uid()) and (select private.is_active_customer()));
 create policy app_reviews_admin on public.reviews for all to authenticated
   using ((select private.is_admin())) with check ((select private.is_admin()));
 
@@ -232,4 +235,3 @@ create policy app_notifications_update on public.notifications for update to aut
   with check (user_id = (select auth.uid()) and (select private.is_active_customer()));
 create policy app_notifications_admin on public.notifications for all to authenticated
   using ((select private.is_admin())) with check ((select private.is_admin()));
-

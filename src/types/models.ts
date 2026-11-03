@@ -11,7 +11,16 @@ export type Product = {
   category?: string;
   description?: string;
   variant?: string;
+  variants?: ProductVariant[];
   stock?: number;
+};
+
+export type ProductVariant = {
+  id: string;
+  color: string | null;
+  size: string | null;
+  priceOverride: number | null;
+  stock: number;
 };
 
 export type CartItem = {
@@ -19,6 +28,7 @@ export type CartItem = {
   product: Product;
   quantity: number;
   variant?: string;
+  variantId?: string | null;
   selected: boolean;
 };
 
@@ -56,15 +66,18 @@ export type Order = {
 
 export type Review = {
   id: string;
-  orderId?: string;
+  orderId?: string | null;
   productId: string;
   productName?: string;
+  userId?: string;
   userName?: string;
-  userAvatar?: string;
+  userAvatar?: string | null;
   rating: number;
   comment: string;
   tags?: string[];
   createdAt: string;
+  updatedAt?: string;
   isVerifiedBuyer?: boolean;
   images?: string[];
+  isOwner?: boolean;
 };

@@ -1,5 +1,12 @@
 -- Ecommerce marketplace: core schema for the mobile app.
--- Run this file before policies.sql in Supabase SQL Editor.
+-- REFERENCE FILE ONLY -- for running manually in Supabase Cloud SQL Editor.
+-- For local development use `npx supabase db reset` which replays migrations in order.
+-- Do NOT run this file during db reset.
+--
+-- Execution order for Cloud:
+--   1. schema.sql   (this file)
+--   2. policies.sql
+--   3. seed.sql     (optional)
 
 create extension if not exists pgcrypto;
 
@@ -16,8 +23,6 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
--- Keep existing Supabase projects compatible when this schema is re-applied.
-alter table public.profiles add column if not exists address text;
 
 create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
@@ -160,12 +165,23 @@ create table if not exists public.reviews (
   order_id uuid references public.orders (id) on delete set null,
   rating smallint not null check (rating between 1 and 5),
   comment text,
-  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  images text[] default '{}',
+  tags text[] default '{}',
+  status text not null default 'approved' check (status in ('pending', 'approved', 'rejected')),
   moderated_by uuid references public.profiles (id) on delete set null,
   moderated_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (user_id, product_id)
+);
+
+-- Separate table for review image URLs (used by PostgREST review_images join).
+create table if not exists public.review_images (
+  id uuid primary key default gen_random_uuid(),
+  review_id uuid not null references public.reviews (id) on delete cascade,
+  image_url text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.notifications (
@@ -202,6 +218,7 @@ create index if not exists cart_items_cart_idx on public.cart_items (cart_id);
 create index if not exists orders_user_created_idx on public.orders (user_id, created_at desc);
 create index if not exists order_items_order_idx on public.order_items (order_id);
 create index if not exists reviews_product_status_idx on public.reviews (product_id, status, created_at desc);
+create index if not exists review_images_review_idx on public.review_images (review_id, sort_order);
 create index if not exists notifications_user_created_idx on public.notifications (user_id, created_at desc);
 
 -- Create a customer profile automatically after Supabase Auth signup.

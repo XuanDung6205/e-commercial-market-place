@@ -9,11 +9,11 @@ type RatingSummaryProps = {
 };
 
 const DEFAULT_DISTRIBUTION: { [star: number]: number } = {
-  5: 82,
-  4: 12,
-  3: 4,
-  2: 1,
-  1: 1,
+  5: 0,
+  4: 0,
+  3: 0,
+  2: 0,
+  1: 0,
 };
 
 export function RatingSummary({
@@ -21,14 +21,17 @@ export function RatingSummary({
   totalReviews,
   distribution = DEFAULT_DISTRIBUTION,
 }: RatingSummaryProps) {
-  const roundedRating = Number(rating.toFixed(1));
+  const roundedRating = totalReviews > 0 ? Number(rating.toFixed(1)) : 0;
+  const dist = totalReviews === 0 ? DEFAULT_DISTRIBUTION : distribution;
 
   return (
     <View style={styles.container}>
       {/* Left Score Block */}
       <View style={styles.scoreBlock}>
         <View style={styles.bigScoreRow}>
-          <Text style={styles.bigScore}>{roundedRating.toString().replace('.', ',')}</Text>
+          <Text style={styles.bigScore}>
+            {totalReviews > 0 ? roundedRating.toString().replace('.', ',') : '0'}
+          </Text>
           <Text style={styles.scoreScale}>/5</Text>
         </View>
 
@@ -60,7 +63,7 @@ export function RatingSummary({
       {/* Right Progress Bars */}
       <View style={styles.barsBlock}>
         {[5, 4, 3, 2, 1].map((star) => {
-          const percent = distribution[star] ?? 0;
+          const percent = dist[star] ?? 0;
           return (
             <View key={star} style={styles.barRow}>
               <View style={styles.starLabel}>

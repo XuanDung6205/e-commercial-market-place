@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -14,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
-import { useReviews } from '@/src/store/marketplaceStore';
+import { ReviewService } from '@/src/services/review.service';
 
 const RATING_LABELS = ['Rất tệ', 'Tệ', 'Bình thường', 'Hài lòng', 'Tuyệt vời'];
 
@@ -28,23 +29,46 @@ const QUICK_TAGS = [
 ];
 
 export default function FeedbackScreen() {
-  const { orderId, productId, productName, image, variant } = useLocalSearchParams<{
+  const params = useLocalSearchParams<{
     orderId?: string;
     productId?: string;
     productName?: string;
     image?: string;
     variant?: string;
+    reviewId?: string;
+    initialRating?: string;
+    initialComment?: string;
   }>();
 
-  const { addReview } = useReviews();
+  const isEditing = Boolean(params.reviewId);
 
-  const [rating, setRating] = useState(5);
+  const [rating, setRating] = useState<number>(() => {
+    const r = Number(params.initialRating);
+    return r >= 1 && r <= 5 ? r : 5;
+  });
+
   const [selectedTags, setSelectedTags] = useState<string[]>([
     'Chất lượng tuyệt vời',
     'Giao hàng nhanh',
   ]);
-  const [comment, setComment] = useState('');
+
+  const [comment, setComment] = useState(params.initialComment || '');
   const [submitting, setSubmitting] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const user = await ReviewService.getCurrentUser();
+      if (!active) return;
+      setCheckingAuth(false);
+      setIsLoggedIn(Boolean(user));
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) =>
@@ -52,26 +76,72 @@ export default function FeedbackScreen() {
     );
   };
 
-  const handleSubmit = () => {
-    setSubmitting(true);
-    setTimeout(() => {
-      addReview({
-        orderId,
-        productId: productId || 'prod-4',
-        productName: productName || 'Tai nghe không dây Air',
-        rating,
-        comment: comment.trim(),
-        tags: selectedTags,
-      });
-
-      setSubmitting(false);
-      Alert.alert('Cảm ơn bạn!', 'Đánh giá của bạn đã được gửi thành công.', [
-        {
-          text: 'Xác nhận',
-          onPress: () => router.back(),
-        },
+  const handleSubmit = async () => {
+    if (!isLoggedIn) {
+      Alert.alert('Chưa đăng nhập', 'Vui lòng đăng nhập để gửi đánh giá sản phẩm.', [
+        { text: 'Hủy', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
       ]);
-    }, 300);
+      return;
+    }
+
+    if (!params.productId) {
+      Alert.alert('Lỗi', 'Không tìm thấy thông tin sản phẩm cần đánh giá.');
+      return;
+    }
+
+    if (!comment.trim()) {
+      Alert.alert('Chưa nhập nhận xét', 'Vui lòng chia sẻ đôi lời cảm nhận về sản phẩm.');
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      if (isEditing && params.reviewId) {
+        // Update review in Supabase
+        const { review, error } = await ReviewService.updateReview(params.reviewId, {
+          rating,
+          comment: comment.trim(),
+          tags: selectedTags,
+        });
+
+        setSubmitting(false);
+
+        if (error || !review) {
+          Alert.alert('Không thể cập nhật', error || 'Đã có lỗi xảy ra.');
+          return;
+        }
+
+        Alert.alert('Thành công', 'Đánh giá của bạn đã được cập nhật.', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+      } else {
+        // Create new review in Supabase
+        const { review, error } = await ReviewService.createReview({
+          productId: params.productId,
+          rating,
+          comment: comment.trim(),
+          tags: selectedTags,
+          orderId: params.orderId || null,
+        });
+
+        setSubmitting(false);
+
+        if (error || !review) {
+          Alert.alert('Chưa thể lưu đánh giá', error || 'Đã có lỗi xảy ra.');
+          return;
+        }
+
+        Alert.alert('Cảm ơn bạn!', 'Đánh giá của bạn đã được ghi nhận thành công.', [
+          { text: 'Xác nhận', onPress: () => router.back() },
+        ]);
+      }
+    } catch (err) {
+      setSubmitting(false);
+      const msg = err instanceof Error ? err.message : 'Đã có lỗi kết nối.';
+      Alert.alert('Lỗi kết nối', msg);
+    }
   };
 
   return (
@@ -93,16 +163,35 @@ export default function FeedbackScreen() {
             size={22}
           />
         </Pressable>
-        <Text style={styles.headerTitle}>Đánh giá sản phẩm</Text>
+        <Text style={styles.headerTitle}>
+          {isEditing ? 'Chỉnh sửa đánh giá' : 'Đánh giá sản phẩm'}
+        </Text>
         <View style={styles.headerPlaceholder} />
       </View>
+
+      {/* Auth warning banner if not logged in */}
+      {!checkingAuth && !isLoggedIn ? (
+        <View style={styles.authBanner}>
+          <SymbolView
+            name={{ ios: 'exclamationmark.circle', android: 'error_outline', web: 'error' }}
+            tintColor="#B57900"
+            size={18}
+          />
+          <Text style={styles.authBannerText}>
+            Bạn cần đăng nhập để gửi đánh giá được lưu vào hệ thống.
+          </Text>
+          <Pressable onPress={() => router.push('/(auth)/login')}>
+            <Text style={styles.loginLink}>Đăng nhập</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Product Card */}
         <View style={styles.card}>
           <View style={styles.productRow}>
-            {image ? (
-              <Image source={{ uri: image }} style={styles.productImage} resizeMode="cover" />
+            {params.image ? (
+              <Image source={{ uri: params.image }} style={styles.productImage} resizeMode="cover" />
             ) : (
               <View style={[styles.productImage, styles.productImageFallback]}>
                 <SymbolView
@@ -114,9 +203,11 @@ export default function FeedbackScreen() {
             )}
             <View style={styles.productDetails}>
               <Text numberOfLines={2} style={styles.productName}>
-                {productName || 'Tai nghe không dây Air'}
+                {params.productName || 'Sản phẩm'}
               </Text>
-              {variant ? <Text style={styles.productVariant}>{variant}</Text> : null}
+              {params.variant ? (
+                <Text style={styles.productVariant}>{params.variant}</Text>
+              ) : null}
             </View>
           </View>
         </View>
@@ -138,7 +229,7 @@ export default function FeedbackScreen() {
                     android: star <= rating ? 'star' : 'star_border',
                     web: star <= rating ? 'star' : 'star_border',
                   }}
-                  tintColor={star <= rating ? colors.star : '#D1D5DB'}
+                  tintColor={star <= rating ? colors.star : '#D8DCE3'}
                   size={36}
                 />
               </Pressable>
@@ -182,10 +273,10 @@ export default function FeedbackScreen() {
             style={styles.commentInput}
           />
 
-          {/* Add photos mock */}
+          {/* Add photos mock button */}
           <Pressable
             onPress={() =>
-              Alert.alert('Thêm ảnh', 'Tính năng tải ảnh sản phẩm sẽ hỗ trợ trong phiên bản sau.')
+              Alert.alert('Thêm ảnh', 'Tính năng tải ảnh từ thiết bị sẽ hỗ trợ trong phiên bản sau.')
             }
             style={styles.photoUploadBtn}
           >
@@ -194,7 +285,7 @@ export default function FeedbackScreen() {
               tintColor={colors.muted}
               size={20}
             />
-            <Text style={styles.photoUploadText}>Thêm hình ảnh / video</Text>
+            <Text style={styles.photoUploadText}>Thêm hình ảnh / video thực tế</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -207,9 +298,13 @@ export default function FeedbackScreen() {
           onPress={handleSubmit}
           style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
         >
-          <Text style={styles.submitButtonText}>
-            {submitting ? 'Đang gửi đánh giá...' : 'Gửi đánh giá'}
-          </Text>
+          {submitting ? (
+            <ActivityIndicator color={colors.white} />
+          ) : (
+            <Text style={styles.submitButtonText}>
+              {isEditing ? 'Lưu thay đổi' : 'Gửi đánh giá'}
+            </Text>
+          )}
         </Pressable>
       </View>
     </SafeAreaView>
@@ -244,6 +339,27 @@ const styles = StyleSheet.create({
   },
   headerPlaceholder: {
     width: 36,
+  },
+  authBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF6E7',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FBE2B5',
+  },
+  authBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#8A5800',
+    lineHeight: 16,
+  },
+  loginLink: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.cyan,
   },
   scrollContent: {
     padding: 16,

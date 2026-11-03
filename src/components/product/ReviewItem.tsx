@@ -1,21 +1,56 @@
 import { useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { Review } from '@/src/types/models';
 
 type ReviewItemProps = {
   review: Review;
+  onEdit?: (review: Review) => void;
+  onDelete?: (reviewId: string) => Promise<string | null>;
 };
 
-export function ReviewItem({ review }: ReviewItemProps) {
-  const { userName, userAvatar, rating, createdAt, isVerifiedBuyer, comment, images, tags } = review;
+export function ReviewItem({ review, onEdit, onDelete }: ReviewItemProps) {
+  const {
+    id,
+    userName,
+    userAvatar,
+    rating,
+    createdAt,
+    isVerifiedBuyer,
+    comment,
+    images,
+    tags,
+    isOwner,
+  } = review;
+
   const [activeImage, setActiveImage] = useState<string | null>(null);
+  const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const initial = (userName || 'U').trim().slice(0, 1).toUpperCase();
 
+  const handleConfirmDelete = () => {
+    setDeleteError(null);
+    setConfirmDeleteVisible(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!onDelete) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const error = await onDelete(id);
+    setDeleting(false);
+    if (error) {
+      setDeleteError(error);
+      return;
+    }
+    setConfirmDeleteVisible(false);
+  };
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isOwner && styles.ownerCard]}>
       {/* User Header */}
       <View style={styles.headerRow}>
         <View style={styles.userBlock}>
@@ -29,7 +64,10 @@ export function ReviewItem({ review }: ReviewItemProps) {
 
           <View style={styles.nameBlock}>
             <View style={styles.nameBadgeRow}>
-              <Text style={styles.userName}>{userName}</Text>
+              <Text style={styles.userName}>
+                {userName}
+                {isOwner ? ' (Bạn)' : ''}
+              </Text>
               {isVerifiedBuyer ? (
                 <View style={styles.verifiedBadge}>
                   <SymbolView
@@ -87,6 +125,41 @@ export function ReviewItem({ review }: ReviewItemProps) {
         </View>
       ) : null}
 
+      {/* Owner Actions (Edit & Delete) */}
+      {isOwner ? (
+        <View style={styles.ownerActionsRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Chỉnh sửa đánh giá"
+            hitSlop={6}
+            onPress={() => onEdit?.(review)}
+            style={styles.editActionBtn}
+          >
+            <SymbolView
+              name={{ ios: 'pencil', android: 'edit', web: 'edit' }}
+              tintColor={colors.cyan}
+              size={13}
+            />
+            <Text style={styles.editActionText}>Chỉnh sửa</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Xóa đánh giá"
+            hitSlop={6}
+            onPress={handleConfirmDelete}
+            style={styles.deleteActionBtn}
+          >
+            <SymbolView
+              name={{ ios: 'trash', android: 'delete_outline', web: 'delete' }}
+              tintColor={colors.danger}
+              size={13}
+            />
+            <Text style={styles.deleteActionText}>Xóa</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* Image Zoom Modal */}
       <Modal visible={!!activeImage} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setActiveImage(null)}>
@@ -104,6 +177,47 @@ export function ReviewItem({ review }: ReviewItemProps) {
           </View>
         </Pressable>
       </Modal>
+
+      <Modal
+        visible={confirmDeleteVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deleting) setConfirmDeleteVisible(false);
+        }}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalCard}>
+            <Text style={styles.deleteModalTitle}>Xóa đánh giá?</Text>
+            <Text style={styles.deleteModalMessage}>
+              Đánh giá này sẽ bị xóa vĩnh viễn.
+            </Text>
+            {deleteError ? <Text style={styles.deleteModalError}>{deleteError}</Text> : null}
+            <View style={styles.deleteModalActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={deleting}
+                onPress={() => setConfirmDeleteVisible(false)}
+                style={styles.deleteCancelButton}
+              >
+                <Text style={styles.deleteCancelText}>Hủy</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={deleting}
+                onPress={() => void confirmDelete()}
+                style={styles.deleteConfirmButton}
+              >
+                {deleting ? (
+                  <ActivityIndicator color={colors.white} size="small" />
+                ) : (
+                  <Text style={styles.deleteConfirmText}>Xóa</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -116,6 +230,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: '#EDF1F3',
+  },
+  ownerCard: {
+    borderColor: '#BFEFF7',
+    backgroundColor: '#FAFDFE',
   },
   headerRow: {
     flexDirection: 'row',
@@ -220,6 +338,40 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#F2F4F7',
   },
+  ownerActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 14,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#EEF1F4',
+  },
+  editActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  editActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.cyan,
+  },
+  deleteActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  deleteActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.danger,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -246,5 +398,69 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  deleteModalCard: {
+    width: '100%',
+    maxWidth: 360,
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: colors.white,
+  },
+  deleteModalTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  deleteModalMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  deleteModalError: {
+    color: colors.danger,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 12,
+  },
+  deleteModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  deleteCancelButton: {
+    flex: 1,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: '#F3F5F7',
+  },
+  deleteCancelText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  deleteConfirmButton: {
+    flex: 1,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: colors.danger,
+  },
+  deleteConfirmText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
