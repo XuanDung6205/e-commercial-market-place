@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +11,15 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
+import { supabase } from "@/src/services/supabase";
+import {
+  addProduct,
+  getCategories,
+  CategoryOption,
+} from '../../../src/services/admin/productService';
 
 type ProductVariant = {
   id: number;
@@ -29,10 +38,16 @@ const CATEGORIES = [
 ];
 
 export default function AddProductScreen() {
+  const router = useRouter();
+
   const [name, setName] = useState('Tai nghe không dây Air');
   const [category, setCategory] = useState('Điện tử');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+
   const [price, setPrice] = useState('890.000');
   const [discount, setDiscount] = useState('15');
+
   const [description, setDescription] = useState(
     'Âm thanh trong trẻo, kết nối Bluetooth 5.3. Pin sử dụng đến 30 giờ, đệm tai êm ái.'
   );
@@ -47,6 +62,44 @@ export default function AddProductScreen() {
   ]);
 
   const [categoryIndex, setCategoryIndex] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // ==================== LOAD CATEGORIES ====================
+
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  const loadCategories = async () => {
+    try {
+      const data = await getCategories();
+
+      setCategories(data);
+
+      if (data.length > 0) {
+        const defaultCategory =
+          data.find((item) => item.name === category) ?? data[0];
+
+        setCategory(defaultCategory.name);
+        setSelectedCategoryId(defaultCategory.id);
+
+        const index = data.findIndex(
+          (item) => item.id === defaultCategory.id
+        );
+
+        setCategoryIndex(index >= 0 ? index : 0);
+      }
+    } catch (error: any) {
+      console.error('Load categories error:', error);
+
+      Alert.alert(
+        'Lỗi',
+        error?.message ?? 'Không thể tải danh mục sản phẩm.'
+      );
+    }
+  };
+
+  // ==================== VARIANTS ====================
 
   const addVariant = () => {
     setVariants((previous) => [
@@ -80,29 +133,125 @@ export default function AddProductScreen() {
     );
   };
 
+  // ==================== CATEGORY ====================
+
   const handleCategoryPress = () => {
-    const nextIndex =
-      (categoryIndex + 1) % CATEGORIES.length;
+    if (categories.length === 0) {
+      Alert.alert(
+        'Thông báo',
+        'Chưa có danh mục trong cơ sở dữ liệu.'
+      );
+      return;
+    }
+
+    const nextIndex = (categoryIndex + 1) % categories.length;
+    const nextCategory = categories[nextIndex];
 
     setCategoryIndex(nextIndex);
-    setCategory(CATEGORIES[nextIndex]);
+    setCategory(nextCategory.name);
+    setSelectedCategoryId(nextCategory.id);
   };
+
+  // ==================== IMAGE ====================
 
   const handleUploadImage = () => {
     Alert.alert(
       'Thêm hình ảnh',
-      'Phần chọn ảnh sẽ được tích hợp với thư viện hình ảnh của thiết bị ở bước tiếp theo.'
+      'Chức năng chọn ảnh từ thư viện sẽ được tích hợp ở bước tiếp theo.'
     );
   };
 
-  const handleSave = () => {
+  // ==================== CREATE SLUG ====================
+
+  const createSlug = (value: string) => {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-');
+  };
+
+  
+// ==================== SAVE PRODUCT ====================
+
+const handleSave = async () => {
+  if (isSaving) return;
+
+  try {
+    setIsSaving(true);
+
+    // Kiểm tra Supabase Auth session
+    const { data, error } = await supabase.auth.getSession();
+
+    console.log('SESSION:', data.session);
+    console.log('USER ID:', data.session?.user?.id);
+    console.log('ERROR:', error);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data.session) {
+      Alert.alert(
+        'Thông báo',
+        'Bạn chưa đăng nhập bằng Supabase Auth.'
+      );
+      return;
+    }
+
+    // Kiểm tra tên sản phẩm
     if (!name.trim()) {
       Alert.alert('Thông báo', 'Vui lòng nhập tên sản phẩm.');
       return;
     }
 
-    if (!price.trim() || Number(price.replace(/\D/g, '')) <= 0) {
+    // Kiểm tra danh mục
+    if (!selectedCategoryId) {
+      Alert.alert(
+        'Thông báo',
+        'Vui lòng chọn danh mục sản phẩm hợp lệ.'
+      );
+      return;
+    }
+
+    // Chuyển giá từ 890.000 thành 890000
+    const productPrice = Number(price.replace(/\D/g, ''));
+
+    if (
+      !price.trim() ||
+      !Number.isFinite(productPrice) ||
+      productPrice <= 0
+    ) {
       Alert.alert('Thông báo', 'Vui lòng nhập giá sản phẩm hợp lệ.');
+      return;
+    }
+
+    // Kiểm tra giảm giá
+    const discountValue = Number(discount || 0);
+
+    if (
+      !Number.isFinite(discountValue) ||
+      discountValue < 0 ||
+      discountValue > 100
+    ) {
+      Alert.alert(
+        'Thông báo',
+        'Phần trăm giảm giá phải nằm trong khoảng 0 đến 100.'
+      );
+      return;
+    }
+
+    // Kiểm tra biến thể
+    if (variants.length === 0) {
+      Alert.alert(
+        'Thông báo',
+        'Vui lòng thêm ít nhất một biến thể sản phẩm.'
+      );
       return;
     }
 
@@ -123,36 +272,69 @@ export default function AddProductScreen() {
       return;
     }
 
-    if (
-      discount.trim() !== '' &&
-      (!Number.isFinite(Number(discount)) ||
-        Number(discount) < 0 ||
-        Number(discount) > 100)
-    ) {
-      Alert.alert(
-        'Thông báo',
-        'Phần trăm giảm giá phải nằm trong khoảng 0 đến 100.'
-      );
-      return;
-    }
+    // Tính giá gốc trước giảm
+    const compareAtPrice =
+      discountValue > 0
+        ? Math.round(
+            (productPrice / (1 - discountValue / 100)) * 100
+          ) / 100
+        : null;
 
-    const product = {
+    // Tổng tồn kho
+    const totalStock = variants.reduce(
+      (total, variant) => total + Number(variant.stock),
+      0
+    );
+
+    const slug = createSlug(name);
+    const productSku = `SP-${Date.now()}`;
+
+    const productData = {
+      category_id: selectedCategoryId,
       name: name.trim(),
-      category,
-      price: Number(price.replace(/\D/g, '')),
-      discount: Number(discount || 0),
-      description: description.trim(),
-      variants,
+      slug: `${slug}-${Date.now()}`,
+      sku: productSku,
+      description: description.trim() || null,
+      price: productPrice,
+      compare_at_price: compareAtPrice,
+      stock_quantity: totalStock,
+      status: 'active' as const,
+      image_url: null,
+
+      variants: variants.map((variant, index) => ({
+        sku: `${productSku}-${index + 1}`,
+        color: variant.color.trim(),
+        size: variant.size.trim(),
+        stock_quantity: Number(variant.stock),
+        price_override: null,
+        is_active: true,
+      })),
     };
 
-    // Hiện tại chỉ kiểm tra dữ liệu giao diện.
-    // Chưa gửi dữ liệu lên Supabase.
-    console.log('Thông tin sản phẩm:', product);
+    // Lưu sản phẩm lên Supabase
+    await addProduct(productData);
+
+    // Chuyển thẳng về trang quản lý sản phẩm
+    router.replace('/(admin)/products');
+
+  } catch (error: any) {
+    console.error('Add product error:', error);
 
     Alert.alert(
-      'Thông báo',
-      'Thông tin hợp lệ! Bước tiếp theo sẽ kết nối chức năng lưu sản phẩm vào Supabase.'
+      'Thêm sản phẩm thất bại',
+      error?.message ??
+        'Đã xảy ra lỗi khi lưu sản phẩm. Vui lòng thử lại.'
     );
+  } finally {
+    setIsSaving(false);
+  }
+};
+
+
+  // ==================== BACK ====================
+
+  const handleBack = () => {
+    router.back();
   };
 
   return (
@@ -163,7 +345,7 @@ export default function AddProductScreen() {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => Alert.alert('Thông báo', 'Bạn có thể kết nối nút này với điều hướng quay lại.')}
+          onPress={handleBack}
         >
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
@@ -188,9 +370,11 @@ export default function AddProductScreen() {
             onPress={handleUploadImage}
           >
             <Text style={styles.uploadIcon}>▧</Text>
+
             <Text style={styles.uploadTitle}>
               Thêm ảnh sản phẩm
             </Text>
+
             <Text style={styles.uploadDescription}>
               Tối đa 5 ảnh · JPG, PNG · 5 MB/ảnh
             </Text>
@@ -280,10 +464,13 @@ export default function AddProductScreen() {
 
             <View style={styles.variantHeader}>
               <Text style={styles.variantHeaderText}>Màu</Text>
+
               <Text style={styles.variantHeaderText}>Size</Text>
+
               <Text style={styles.variantHeaderText}>
                 Tồn kho
               </Text>
+
               <View style={styles.removeColumn} />
             </View>
 
@@ -348,18 +535,28 @@ export default function AddProductScreen() {
       {/* Fixed bottom button */}
       <View style={styles.footer}>
         <TouchableOpacity
-          style={styles.saveButton}
+          style={[
+            styles.saveButton,
+            isSaving && styles.saveButtonDisabled,
+          ]}
           onPress={handleSave}
           activeOpacity={0.8}
+          disabled={isSaving}
         >
-          <Text style={styles.saveButtonText}>
-            Lưu sản phẩm
-          </Text>
+          {isSaving ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.saveButtonText}>
+              Lưu sản phẩm
+            </Text>
+          )}
         </TouchableOpacity>
       </View>
     </View>
   );
 }
+
+// ==================== STYLES ====================
 
 const styles = StyleSheet.create({
   screen: {
@@ -594,6 +791,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#06B6CB',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  saveButtonDisabled: {
+    opacity: 0.6,
   },
 
   saveButtonText: {

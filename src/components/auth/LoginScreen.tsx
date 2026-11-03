@@ -19,7 +19,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import EyeOffIcon from "@/assets/images/figma/auth-login/eye-off.svg";
 import PlusIcon from "@/assets/images/figma/auth-login/plus.svg";
 import ShoppingBagIcon from "@/assets/images/figma/auth-login/shopping-bag.svg";
-import { signInWithEmail } from "@/src/services/auth.service";
+import {
+  getAuthenticatedRoute,
+  getCurrentUserRole,
+  signInWithEmail,
+} from "@/src/services/auth.service";
 import { supabase } from "@/src/services/supabase";
 
 type SocialProvider = "google" | "facebook";
@@ -60,15 +64,18 @@ export default function LoginScreen() {
     try {
       const { error } = await signInWithEmail(normalizedEmail, password);
       if (error) {
-        setErrorMessage(
-          error.message,
-        );
+        setErrorMessage(error.message);
         return;
       }
 
-      router.replace("/(tabs)/home");
-    } catch {
-      setErrorMessage("Không thể kết nối. Vui lòng kiểm tra mạng và thử lại.");
+      const role = await getCurrentUserRole();
+      router.replace(getAuthenticatedRoute(role));
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Không thể kết nối. Vui lòng kiểm tra mạng và thử lại.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -119,9 +126,14 @@ export default function LoginScreen() {
         setErrorMessage(exchangeError.message);
         return;
       }
-      router.replace("/(tabs)/home");
-    } catch {
-      setErrorMessage("Đăng nhập bằng mạng xã hội thất bại. Vui lòng thử lại.");
+      const role = await getCurrentUserRole();
+      router.replace(getAuthenticatedRoute(role));
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Đăng nhập bằng mạng xã hội thất bại. Vui lòng thử lại.",
+      );
     } finally {
       setSocialProvider(null);
     }

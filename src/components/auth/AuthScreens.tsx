@@ -15,6 +15,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  getAuthenticatedRoute,
+  getCurrentUserRole,
+  signUpWithEmail,
+} from '@/src/services/auth.service';
+
 const colors = {
   accent: '#00BCD4',
   text: '#2B2F3A',
@@ -147,12 +153,25 @@ function AuthField({
   );
 }
 
-function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+function PrimaryButton({
+  disabled = false,
+  label,
+  onPress,
+}: {
+  disabled?: boolean;
+  label: string;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
+      disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.primaryButton, pressed ? styles.pressed : null]}
+      style={({ pressed }) => [
+        styles.primaryButton,
+        pressed ? styles.pressed : null,
+        disabled ? styles.disabledButton : null,
+      ]}
     >
       <Text style={styles.primaryButtonText}>{label}</Text>
     </Pressable>
@@ -247,8 +266,12 @@ export function RegisterScreen() {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [confirmationError, setConfirmationError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
+    setSubmitError('');
     const nextNameError = name.trim() ? '' : 'Vui lòng nhập họ và tên';
     const nextEmailError = emailPattern.test(email.trim()) ? '' : 'Email không hợp lệ';
     const nextPasswordError = password.length >= 8 ? '' : 'Mật khẩu cần có ít nhất 8 ký tự';
@@ -259,57 +282,100 @@ export function RegisterScreen() {
     setConfirmationError(nextConfirmationError);
 
     if (!nextNameError && !nextEmailError && !nextPasswordError && !nextConfirmationError) {
-      router.replace('/login');
+      setIsSubmitting(true);
+      try {
+        const { data, error } = await signUpWithEmail(email, password, name);
+        if (error) {
+          setSubmitError(error.message);
+          return;
+        }
+
+        if (data.session) {
+          const role = await getCurrentUserRole();
+          router.replace(getAuthenticatedRoute(role));
+          return;
+        }
+
+        setSuccessMessage(
+          `Tài khoản đã được tạo. Vui lòng xác thực email ${email.trim()} trước khi đăng nhập.`,
+        );
+      } catch (error) {
+        setSubmitError(
+          error instanceof Error ? error.message : 'Đăng ký thất bại. Vui lòng thử lại.',
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
   return (
     <AuthPage title="Đăng ký" onBack={() => router.replace('/login')}>
-      <View style={styles.authContent}>
-        <View style={styles.authIntroCopy}>
-          <Text style={styles.title}>Tạo tài khoản</Text>
-          <Text style={styles.description}>Điền thông tin để bắt đầu</Text>
+      {successMessage ? (
+        <View style={styles.successContent}>
+          <View style={styles.successIcon}>
+            <SymbolView
+              name={{ ios: 'checkmark.circle.fill', android: 'check_circle', web: 'check_circle' }}
+              tintColor={colors.accent}
+              size={56}
+            />
+          </View>
+          <Text style={styles.title}>Tạo tài khoản thành công</Text>
+          <Text style={styles.description}>{successMessage}</Text>
+          <PrimaryButton label="Đăng nhập" onPress={() => router.replace('/login')} />
         </View>
-        <View style={styles.form}>
-          <AuthField
-            autoCapitalize="words"
-            autoComplete="name"
-            onChangeText={(value) => { setName(value); setNameError(''); }}
-            placeholder="Họ và tên"
-            value={name}
-          />
-          {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
-          <AuthField
-            autoComplete="email"
-            keyboardType="email-address"
-            onChangeText={(value) => { setEmail(value); setEmailError(''); }}
-            placeholder="Nhập địa chỉ email"
-            error={emailError}
-            value={email}
-          />
-          <AuthField
-            autoComplete="new-password"
-            onChangeText={(value) => { setPassword(value); setPasswordError(''); }}
-            placeholder="Nhập mật khẩu"
-            error={passwordError}
-            secureTextEntry
-            value={password}
-          />
-          <AuthField
-            autoComplete="new-password"
-            onChangeText={(value) => { setConfirmation(value); setConfirmationError(''); }}
-            placeholder="Xác nhận mật khẩu"
-            error={confirmationError}
-            secureTextEntry
-            value={confirmation}
-          />
-          <PrimaryButton label="Đăng ký" onPress={submit} />
-          <View style={styles.accountPrompt}>
-            <Text style={styles.promptText}>Đã có tài khoản? </Text>
-            <InlineLink label="Đăng nhập" onPress={() => router.replace('/login')} />
+      ) : (
+        <View style={styles.authContent}>
+          <View style={styles.authIntroCopy}>
+            <Text style={styles.title}>Tạo tài khoản</Text>
+            <Text style={styles.description}>Điền thông tin để bắt đầu</Text>
+          </View>
+          <View style={styles.form}>
+            <AuthField
+              autoCapitalize="words"
+              autoComplete="name"
+              onChangeText={(value) => { setName(value); setNameError(''); }}
+              placeholder="Họ và tên"
+              value={name}
+            />
+            {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
+            <AuthField
+              autoComplete="email"
+              keyboardType="email-address"
+              onChangeText={(value) => { setEmail(value); setEmailError(''); }}
+              placeholder="Nhập địa chỉ email"
+              error={emailError}
+              value={email}
+            />
+            <AuthField
+              autoComplete="new-password"
+              onChangeText={(value) => { setPassword(value); setPasswordError(''); }}
+              placeholder="Nhập mật khẩu"
+              error={passwordError}
+              secureTextEntry
+              value={password}
+            />
+            <AuthField
+              autoComplete="new-password"
+              onChangeText={(value) => { setConfirmation(value); setConfirmationError(''); }}
+              placeholder="Xác nhận mật khẩu"
+              error={confirmationError}
+              secureTextEntry
+              value={confirmation}
+            />
+            {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
+            <PrimaryButton
+              disabled={isSubmitting}
+              label={isSubmitting ? 'Đang đăng ký...' : 'Đăng ký'}
+              onPress={submit}
+            />
+            <View style={styles.accountPrompt}>
+              <Text style={styles.promptText}>Đã có tài khoản? </Text>
+              <InlineLink label="Đăng nhập" onPress={() => router.replace('/login')} />
+            </View>
           </View>
         </View>
-      </View>
+      )}
     </AuthPage>
   );
 }
@@ -440,6 +506,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { color: colors.white, fontSize: 14, lineHeight: 20, fontWeight: '600' },
   pressed: { opacity: 0.82 },
+  disabledButton: { opacity: 0.6 },
   accountPrompt: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 24 },
   promptText: { color: colors.muted, fontSize: 14, lineHeight: 20 },
   linkText: { color: colors.accent, fontSize: 14, lineHeight: 20, fontWeight: '600' },
