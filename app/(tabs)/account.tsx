@@ -35,7 +35,6 @@ export default function AccountScreen() {
         error: authError,
       } = await supabase.auth.getUser();
       if (authError) throw authError;
-      authStatusLoaded = true;
       setIsAuthenticated(Boolean(user));
       if (user) {
         setEmail(user.email ?? "");
