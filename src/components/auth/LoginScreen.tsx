@@ -4,7 +4,6 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -23,9 +22,6 @@ import {
   getCurrentUserRole,
   signInWithEmail,
 } from "@/src/services/auth.service";
-import { supabase } from "@/src/services/supabase";
-
-type SocialProvider = "google" | "facebook";
 
 const colors = {
   ink: "#2B2F3A",
@@ -76,68 +72,6 @@ export default function LoginScreen() {
       );
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleSocialLogin = async (provider: SocialProvider) => {
-    setErrorMessage("");
-    setSocialProvider(provider);
-
-    try {
-      const redirectTo = Linking.createURL("auth/callback");
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: { redirectTo, skipBrowserRedirect: true },
-      });
-
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      if (!data.url) {
-        setErrorMessage("Không thể mở trang đăng nhập. Vui lòng thử lại.");
-        return;
-      }
-
-      if (Platform.OS === "web") {
-        window.location.assign(data.url);
-        return;
-      }
-
-      const result = await WebBrowser.openAuthSessionAsync(
-        data.url,
-        redirectTo,
-      );
-      if (result.type !== "success") return;
-
-      const callback = Linking.parse(result.url);
-      const code = callback.queryParams?.code;
-      const oauthError = callback.queryParams?.error_description;
-      if (typeof oauthError === "string") {
-        setErrorMessage(oauthError);
-        return;
-      }
-      if (typeof code !== "string") {
-        setErrorMessage("Không nhận được kết quả đăng nhập. Vui lòng thử lại.");
-        return;
-      }
-
-      const { error: exchangeError } =
-        await supabase.auth.exchangeCodeForSession(code);
-      if (exchangeError) {
-        setErrorMessage(exchangeError.message);
-        return;
-      }
-      const role = await getCurrentUserRole();
-      router.replace(getAuthenticatedRoute(role));
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Đăng nhập bằng mạng xã hội thất bại. Vui lòng thử lại.",
-      );
-    } finally {
-      setSocialProvider(null);
     }
   };
 
@@ -457,6 +391,3 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
-function setSocialProvider(provider: string) {
-  throw new Error("Function not implemented.");
-}

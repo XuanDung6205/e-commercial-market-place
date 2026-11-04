@@ -3,6 +3,7 @@ import { useCart } from "@/src/hooks/useCart";
 import { createCustomerOrder } from "@/src/services/order.service";
 import { ProductService } from "@/src/services/product.service";
 import { supabase } from "@/src/services/supabase";
+import type { CartItem } from "@/src/types/models";
 import { formatCurrency } from "@/src/utils/formatCurrency";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -33,22 +34,21 @@ export default function PaymentScreen() {
     typeof buyNowProductId === "string" && buyNowProductId.length > 0;
   const {
     selectedItems,
-    subtotal,
-    discount,
-    tax,
-    shippingFee,
-    total,
+    discount: cartDiscount,
     voucherCode,
     clearSelectedCart,
-    voucherCode,
   } = useCart();
 
   const [recipientName, setRecipientName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [profileLoadError, setProfileLoadError] = useState("");
-  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
+  const [buyNowResult, setBuyNowResult] = useState<{
+    productId: string;
+    item: CartItem | null;
+  } | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("cod");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -66,51 +66,6 @@ export default function PaymentScreen() {
           ? "Vui lòng cập nhật địa chỉ giao hàng trước khi đặt hàng."
           : ""
     : "";
-
-  useEffect(() => {
-    let active = true;
-
-    const loadCustomerProfile = async () => {
-      try {
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
-        if (authError) throw authError;
-        if (!user) return;
-
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("full_name, phone, address")
-          .eq("id", user.id)
-          .maybeSingle();
-        if (profileError) throw profileError;
-        if (!active) return;
-
-        setRecipientName(
-          profile?.full_name?.trim() ||
-            String(user.user_metadata?.full_name ?? ""),
-        );
-        setPhone(profile?.phone?.trim() ?? "");
-        setAddress(profile?.address?.trim() ?? "");
-      } catch (error) {
-        if (active) {
-          setProfileLoadError(
-            error instanceof Error
-              ? `Không tải được thông tin tài khoản: ${error.message}`
-              : "Không tải được thông tin tài khoản. Vui lòng nhập thông tin giao hàng.",
-          );
-        }
-      } finally {
-        if (active) setProfileLoading(false);
-      }
-    };
-
-    void loadCustomerProfile();
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const loadRecipientProfile = useCallback(async () => {
     setIsProfileLoading(true);
@@ -145,7 +100,7 @@ export default function PaymentScreen() {
       setProfileLoadError(
         error instanceof Error
           ? error.message
-          : "Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c h\u1ed3 s\u01a1 giao h\u00e0ng.",
+          : "Không tải được hồ sơ giao hàng.",
       );
     } finally {
       setIsProfileLoading(false);
@@ -233,6 +188,21 @@ export default function PaymentScreen() {
       );
       return;
     }
+    if (!isAuthenticated) {
+      Alert.alert("Cần đăng nhập", "Vui lòng đăng nhập trước khi đặt hàng.", [
+        { text: "Để sau", style: "cancel" },
+        { text: "Đăng nhập", onPress: () => router.push("/(auth)/login") },
+      ]);
+      return;
+    }
+    if (profileLoadError) {
+      Alert.alert("Không tải được hồ sơ", profileLoadError);
+      return;
+    }
+    if (checkoutItems.length === 0) {
+      Alert.alert("Giỏ hàng trống", "Vui lòng chọn sản phẩm để đặt hàng.");
+      return;
+    }
 
     setDeliveryInfoValidationAttempted(true);
     if (missingPhone || missingAddress) return;
@@ -245,7 +215,7 @@ export default function PaymentScreen() {
     setSubmitting(true);
     try {
       const orderId = await createCustomerOrder({
-        items: selectedItems.map((item) => ({
+        items: checkoutItems.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
           variantLabel: item.variant,
@@ -255,10 +225,10 @@ export default function PaymentScreen() {
         address: address.trim(),
         paymentMethod,
         note: note.trim(),
-        voucherCode,
+        voucherCode: isBuyNow ? undefined : voucherCode,
       });
 
-      const cartError = await clearSelectedCart();
+      const cartError = isBuyNow ? null : await clearSelectedCart();
       setSubmitting(false);
       router.replace({
         pathname: "/order-success",
@@ -330,7 +300,7 @@ export default function PaymentScreen() {
               </Text>
             </Pressable>
           </View>
-          {profileLoadError ? (
+      {profileLoadError ? (
             <Text style={styles.profileLoadError}>{profileLoadError}</Text>
           ) : null}
 
@@ -549,16 +519,19 @@ export default function PaymentScreen() {
         </View>
         <Pressable
           accessibilityRole="button"
-          disabled={submitting || profileLoading}
+          disabled={submitting || isProfileLoading || buyNowLoading}
           onPress={handlePlaceOrder}
           style={[
             styles.submitButton,
-            (submitting || profileLoading) && styles.submitButtonDisabled,
+            (submitting || isProfileLoading || buyNowLoading) &&
+              styles.submitButtonDisabled,
           ]}
         >
           <Text style={styles.submitButtonText}>
-            {profileLoading
+            {isProfileLoading
               ? "Đang tải thông tin..."
+              : buyNowLoading
+                ? "Đang tải sản phẩm..."
               : submitting
                 ? "Đang đặt hàng..."
                 : "Đặt hàng"}
@@ -854,6 +827,3 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
-function setBuyNowResult(arg0: { productId: string; item: null }) {
-  throw new Error("Function not implemented.");
-}
