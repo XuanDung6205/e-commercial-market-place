@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { SymbolView } from 'expo-symbols';
@@ -19,6 +19,7 @@ import { formatCurrency } from '@/src/utils/formatCurrency';
 import { useCart } from '@/src/hooks/useCart';
 import { useFavorites } from '@/src/hooks/useFavorites';
 import { Product } from '@/src/types/models';
+import { marketplaceStore } from '@/src/store/marketplaceStore';
 
 export default function FavoritesScreen() {
   const { favorites, removeFavorite, count, loading, error, refresh } = useFavorites();
@@ -27,6 +28,12 @@ export default function FavoritesScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [addedId, setAddedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      void marketplaceStore.refreshFavorites();
+    }, [])
+  );
 
   const filteredFavorites = favorites.filter((item) =>
     item.name.toLowerCase().includes(keyword.trim().toLowerCase())

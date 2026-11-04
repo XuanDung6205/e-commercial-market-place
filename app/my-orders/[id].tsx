@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
-  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -8,14 +7,15 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { SymbolView } from 'expo-symbols';
 import { colors } from '@/src/constants/colors';
 import { formatCurrency } from '@/src/utils/formatCurrency';
 import { cancelMyOrder, getMyOrderById } from '@/src/services/order.service';
-import { Order, OrderStatus } from '@/src/types/models';
+import { ReviewService } from '@/src/services/review.service';
+import { Order, OrderStatus, Review } from '@/src/types/models';
 
 const STEPS = [
   { id: 'pending', label: 'Đã đặt' },
@@ -29,18 +29,57 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [productReviews, setProductReviews] = useState<Record<string, Review>>({});
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsError, setReviewsError] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [cancelDialog, setCancelDialog] = useState<'confirm' | 'result' | null>(null);
+  const [cancelResult, setCancelResult] = useState({
+    title: '',
+    message: '',
+  });
 
-  useEffect(() => {
-    let active = true;
-    void getMyOrderById(id || '')
-      .then((result) => { if (active) { setOrder(result); setLoadError(''); } })
-      .catch((error: unknown) => {
-        if (active) setLoadError(error instanceof Error ? error.message : 'Không tải được đơn hàng.');
-      })
-      .finally(() => { if (active) setLoadedId(id || ''); });
-    return () => { active = false; };
-  }, [id]);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      const orderId = id || '';
+
+      const loadOrderAndReviews = async () => {
+        setReviewsLoading(true);
+        setReviewsError('');
+        try {
+          const result = await getMyOrderById(orderId);
+          if (!active) return;
+          setOrder(result);
+          setLoadError('');
+          setLoadedId(orderId);
+
+          if (result?.status !== 'delivered') {
+            setProductReviews({});
+            setReviewsError('');
+            return;
+          }
+
+          const reviewResult = await ReviewService.getUserReviewsForProducts(
+            result.items.map((item) => item.productId),
+          );
+          if (!active) return;
+          setProductReviews(reviewResult.reviews);
+          setReviewsError(reviewResult.error ?? '');
+        } catch (error) {
+          if (active) {
+            setLoadError(error instanceof Error ? error.message : 'Không tải được đơn hàng.');
+            setLoadedId(orderId);
+          }
+        } finally {
+          if (active) setReviewsLoading(false);
+        }
+      };
+
+      void loadOrderAndReviews();
+      return () => { active = false; };
+    }, [id]),
+  );
 
   if (loadedId !== (id || '')) {
     return (
@@ -91,6 +130,7 @@ export default function OrderDetailScreen() {
       case 'processing':
         return 1; // Đã xác nhận
       case 'shipped':
+      case 'shipping':
         return 2; // Đang giao
       case 'delivered':
         return 3; // Đã giao
@@ -101,26 +141,46 @@ export default function OrderDetailScreen() {
 
   const progressIndex = getStepProgressIndex(order.status);
 
-  const handleCancelOrder = () => {
-    Alert.alert('Hủy đơn hàng', 'Bạn có chắc chắn muốn hủy đơn hàng này không?', [
-      { text: 'Không', style: 'cancel' },
-      {
-        text: 'Hủy đơn',
-        style: 'destructive',
-        onPress: () => { void (async () => {
-          setCancelling(true);
-          try {
-            await cancelMyOrder(order.id);
-            setOrder((current) => current ? { ...current, status: 'cancelled' } : current);
-            Alert.alert('Thành công', 'Đơn hàng của bạn đã được hủy.');
-          } catch (error) {
-            Alert.alert('Chưa hủy được đơn', error instanceof Error ? error.message : 'Vui lòng thử lại.');
-          } finally {
-            setCancelling(false);
-          }
-        })(); },
+  const handleCancelOrder = async () => {
+    setCancelDialog(null);
+    setCancelling(true);
+    try {
+      await cancelMyOrder(order.id);
+      setOrder((current) => current ? { ...current, status: 'cancelled' } : current);
+      setCancelResult({
+        title: 'Đã hủy đơn hàng',
+        message: 'Đơn hàng của bạn đã được hủy thành công.',
+      });
+    } catch (error) {
+      setCancelResult({
+        title: 'Chưa hủy được đơn',
+        message: error instanceof Error ? error.message : 'Vui lòng thử lại.',
+      });
+    } finally {
+      setCancelling(false);
+      setCancelDialog('result');
+    }
+  };
+
+  const openProductReview = (item: Order['items'][number]) => {
+    const review = productReviews[item.productId];
+    router.push({
+      pathname: '/feedback',
+      params: {
+        orderId: order.id,
+        productId: item.productId,
+        productName: item.productName,
+        image: item.image,
+        ...(item.variant ? { variant: item.variant } : {}),
+        ...(review
+          ? {
+              reviewId: review.id,
+              initialRating: String(review.rating),
+              initialComment: review.comment,
+            }
+          : {}),
       },
-    ]);
+    });
   };
 
   const renderStatusBadge = (status: OrderStatus) => {
@@ -133,6 +193,7 @@ export default function OrderDetailScreen() {
         );
       case 'confirmed':
       case 'shipped':
+      case 'shipping':
         return (
           <View style={[styles.badge, styles.badgeShipped]}>
             <Text style={[styles.badgeText, styles.badgeTextShipped]}>Đang giao</Text>
@@ -259,6 +320,11 @@ export default function OrderDetailScreen() {
         {/* Section: Sản phẩm matching Figma */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionHeading}>Sản phẩm ({order.items.length})</Text>
+          {order.status === 'delivered' && reviewsError ? (
+            <Text accessibilityRole="alert" style={styles.reviewsError}>
+              Không tải được trạng thái đánh giá: {reviewsError}
+            </Text>
+          ) : null}
           {order.items.map((item) => (
             <View key={item.id} style={styles.itemRow}>
               <Image source={{ uri: item.image }} style={styles.itemImage} resizeMode="cover" />
@@ -271,6 +337,36 @@ export default function OrderDetailScreen() {
                 </Text>
                 <Text style={styles.itemPrice}>{formatCurrency(item.price)}</Text>
               </View>
+              {order.status === 'delivered' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    productReviews[item.productId]
+                      ? `Chỉnh sửa đánh giá ${item.productName}`
+                      : `Đánh giá ${item.productName}`
+                  }
+                  disabled={reviewsLoading || Boolean(reviewsError) || !item.productId}
+                  onPress={() => openProductReview(item)}
+                  style={[
+                    styles.itemReviewButton,
+                    productReviews[item.productId] && styles.itemReviewButtonEdit,
+                    (reviewsLoading || Boolean(reviewsError)) && styles.itemReviewButtonDisabled,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.itemReviewButtonText,
+                      productReviews[item.productId] && styles.itemReviewButtonEditText,
+                    ]}
+                  >
+                    {reviewsLoading
+                      ? 'Đang tải'
+                      : productReviews[item.productId]
+                        ? 'Chỉnh sửa'
+                        : 'Đánh giá'}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ))}
         </View>
@@ -337,7 +433,7 @@ export default function OrderDetailScreen() {
           <Pressable
             accessibilityRole="button"
             disabled={cancelling}
-            onPress={handleCancelOrder}
+            onPress={() => setCancelDialog('confirm')}
             style={[styles.cancelBtn, cancelling && styles.cancelBtnDisabled]}
           >
             <Text style={styles.cancelBtnText}>
@@ -346,33 +442,62 @@ export default function OrderDetailScreen() {
           </Pressable>
         ) : null}
 
-        {order.status === 'delivered' ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              const first = order.items[0];
-              router.push({
-                pathname: '/feedback',
-                params: {
-                  orderId: order.id,
-                  productId: first?.productId || '',
-                  productName: first?.productName || '',
-                  image: first?.image || '',
-                  variant: first?.variant || '',
-                },
-              });
-            }}
-            style={styles.reviewBtn}
-          >
-            <SymbolView
-              name={{ ios: 'star.fill', android: 'star', web: 'star' }}
-              tintColor={colors.white}
-              size={17}
-            />
-            <Text style={styles.reviewBtnText}>Đánh giá</Text>
-          </Pressable>
-        ) : null}
       </ScrollView>
+
+      {cancelDialog ? (
+        <View style={styles.dialogOverlay}>
+          <View
+            accessibilityRole="alert"
+            style={styles.dialogCard}
+          >
+            <Text style={styles.dialogTitle}>
+              {cancelDialog === 'confirm' ? 'Hủy đơn hàng' : cancelResult.title}
+            </Text>
+            <Text style={styles.dialogMessage}>
+              {cancelDialog === 'confirm'
+                ? 'Bạn có chắc chắn muốn hủy đơn hàng này không?'
+                : cancelResult.message}
+            </Text>
+            <View style={styles.dialogActions}>
+              {cancelDialog === 'confirm' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setCancelDialog(null)}
+                  style={[styles.dialogButton, styles.dialogSecondaryButton]}
+                >
+                  <Text style={styles.dialogSecondaryButtonText}>Không</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  if (cancelDialog === 'confirm') {
+                    void handleCancelOrder();
+                  } else {
+                    setCancelDialog(null);
+                  }
+                }}
+                style={[
+                  styles.dialogButton,
+                  cancelDialog === 'confirm'
+                    ? styles.dialogDestructiveButton
+                    : styles.dialogPrimaryButton,
+                ]}
+              >
+                <Text
+                  style={
+                    cancelDialog === 'confirm'
+                      ? styles.dialogDestructiveButtonText
+                      : styles.dialogPrimaryButtonText
+                  }
+                >
+                  {cancelDialog === 'confirm' ? 'Hủy đơn' : 'Đóng'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -596,6 +721,38 @@ const styles = StyleSheet.create({
     color: colors.cyan,
     marginTop: 4,
   },
+  itemReviewButton: {
+    minWidth: 76,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 9,
+    marginLeft: 8,
+    borderRadius: 8,
+    backgroundColor: colors.cyan,
+  },
+  itemReviewButtonEdit: {
+    backgroundColor: colors.paleCyan,
+    borderWidth: 1,
+    borderColor: colors.cyan,
+  },
+  itemReviewButtonDisabled: {
+    opacity: 0.6,
+  },
+  itemReviewButtonText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  itemReviewButtonEditText: {
+    color: colors.cyan,
+  },
+  reviewsError: {
+    color: colors.danger,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -671,18 +828,72 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  reviewBtn: {
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: colors.cyan,
-    flexDirection: 'row',
+  dialogOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 10,
+    backgroundColor: 'rgba(16, 24, 40, 0.48)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    padding: 24,
   },
-  reviewBtnText: {
+  dialogCard: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 16,
+    padding: 20,
+    backgroundColor: colors.white,
+  },
+  dialogTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  dialogMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  dialogActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  dialogButton: {
+    minWidth: 88,
+    height: 42,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  dialogSecondaryButton: {
+    backgroundColor: '#F3F5F7',
+  },
+  dialogSecondaryButtonText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dialogDestructiveButton: {
+    backgroundColor: '#F04438',
+  },
+  dialogDestructiveButtonText: {
     color: colors.white,
-    fontSize: 15,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  dialogPrimaryButton: {
+    backgroundColor: colors.cyan,
+  },
+  dialogPrimaryButtonText: {
+    color: colors.white,
+    fontSize: 14,
     fontWeight: '700',
   },
   notFoundContainer: {

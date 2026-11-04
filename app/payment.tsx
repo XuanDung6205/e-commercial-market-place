@@ -1,9 +1,8 @@
 import { colors } from "@/src/constants/colors";
 import { useCart } from "@/src/hooks/useCart";
+import { createCustomerOrder } from "@/src/services/order.service";
 import { ProductService } from "@/src/services/product.service";
 import { supabase } from "@/src/services/supabase";
-import type { CartItem } from "@/src/types/models";
-import { createCustomerOrder } from "@/src/services/order.service";
 import { formatCurrency } from "@/src/utils/formatCurrency";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -30,10 +29,16 @@ export default function PaymentScreen() {
     buyNowVariant?: string;
   }>();
   const buyNowProductId = params.buyNowProductId;
-  const isBuyNow = typeof buyNowProductId === "string" && buyNowProductId.length > 0;
+  const isBuyNow =
+    typeof buyNowProductId === "string" && buyNowProductId.length > 0;
   const {
     selectedItems,
-    discount: cartDiscount,
+    subtotal,
+    discount,
+    tax,
+    shippingFee,
+    total,
+    voucherCode,
     clearSelectedCart,
     voucherCode,
   } = useCart();
@@ -41,19 +46,80 @@ export default function PaymentScreen() {
   const [recipientName, setRecipientName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isProfileLoading, setIsProfileLoading] = useState(true);
-  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
-  const [buyNowResult, setBuyNowResult] = useState<{ productId: string; item: CartItem | null } | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileLoadError, setProfileLoadError] = useState("");
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("cod");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [deliveryInfoValidationAttempted, setDeliveryInfoValidationAttempted] =
+    useState(false);
+
+  const missingPhone = !phone.trim();
+  const missingAddress = !address.trim();
+  const deliveryInfoError = deliveryInfoValidationAttempted
+    ? missingPhone && missingAddress
+      ? "Vui lòng cập nhật số điện thoại và địa chỉ giao hàng trước khi đặt hàng."
+      : missingPhone
+        ? "Vui lòng cập nhật số điện thoại trước khi đặt hàng."
+        : missingAddress
+          ? "Vui lòng cập nhật địa chỉ giao hàng trước khi đặt hàng."
+          : ""
+    : "";
+
+  useEffect(() => {
+    let active = true;
+
+    const loadCustomerProfile = async () => {
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!user) return;
+
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("full_name, phone, address")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (profileError) throw profileError;
+        if (!active) return;
+
+        setRecipientName(
+          profile?.full_name?.trim() ||
+            String(user.user_metadata?.full_name ?? ""),
+        );
+        setPhone(profile?.phone?.trim() ?? "");
+        setAddress(profile?.address?.trim() ?? "");
+      } catch (error) {
+        if (active) {
+          setProfileLoadError(
+            error instanceof Error
+              ? `Không tải được thông tin tài khoản: ${error.message}`
+              : "Không tải được thông tin tài khoản. Vui lòng nhập thông tin giao hàng.",
+          );
+        }
+      } finally {
+        if (active) setProfileLoading(false);
+      }
+    };
+
+    void loadCustomerProfile();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const loadRecipientProfile = useCallback(async () => {
     setIsProfileLoading(true);
     setProfileLoadError(null);
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
       if (userError) throw userError;
       setIsAuthenticated(Boolean(user));
       if (!user) {
@@ -70,24 +136,33 @@ export default function PaymentScreen() {
         .maybeSingle();
       if (error) throw error;
       setRecipientName(
-        data?.full_name?.trim() || String(user.user_metadata?.full_name ?? "").trim(),
+        data?.full_name?.trim() ||
+          String(user.user_metadata?.full_name ?? "").trim(),
       );
       setPhone(data?.phone?.trim() ?? "");
       setAddress(data?.address?.trim() ?? "");
     } catch (error) {
-      setProfileLoadError(error instanceof Error ? error.message : "Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c h\u1ed3 s\u01a1 giao h\u00e0ng.");
+      setProfileLoadError(
+        error instanceof Error
+          ? error.message
+          : "Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c h\u1ed3 s\u01a1 giao h\u00e0ng.",
+      );
     } finally {
       setIsProfileLoading(false);
     }
   }, []);
 
-  useFocusEffect(useCallback(() => {
-    void loadRecipientProfile();
-  }, [loadRecipientProfile]));
+  useFocusEffect(
+    useCallback(() => {
+      void loadRecipientProfile();
+    }, [loadRecipientProfile]),
+  );
 
   const hasLoadedBuyNowProduct = buyNowResult?.productId === buyNowProductId;
   const buyNowLoading = isBuyNow && !hasLoadedBuyNowProduct;
-  const buyNowItem = hasLoadedBuyNowProduct ? buyNowResult?.item ?? null : null;
+  const buyNowItem = hasLoadedBuyNowProduct
+    ? (buyNowResult?.item ?? null)
+    : null;
 
   useEffect(() => {
     if (!isBuyNow || !buyNowProductId) return;
@@ -101,13 +176,19 @@ export default function PaymentScreen() {
           return;
         }
         const variantLabel = params.buyNowVariant;
-        const variant = product.variants?.find((item) =>
-          [item.color, item.size].filter(Boolean).join(" / ") === variantLabel,
+        const variant = product.variants?.find(
+          (item) =>
+            [item.color, item.size].filter(Boolean).join(" / ") ===
+            variantLabel,
         );
-        const checkoutProduct = variant?.priceOverride == null
-          ? product
-          : { ...product, price: variant.priceOverride };
-        const quantity = Math.max(1, Math.floor(Number(params.buyNowQuantity) || 1));
+        const checkoutProduct =
+          variant?.priceOverride == null
+            ? product
+            : { ...product, price: variant.priceOverride };
+        const quantity = Math.max(
+          1,
+          Math.floor(Number(params.buyNowQuantity) || 1),
+        );
         setBuyNowResult({
           productId: buyNowProductId,
           item: {
@@ -129,7 +210,11 @@ export default function PaymentScreen() {
     };
   }, [buyNowProductId, isBuyNow, params.buyNowQuantity, params.buyNowVariant]);
 
-  const checkoutItems = isBuyNow ? (buyNowItem ? [buyNowItem] : []) : selectedItems;
+  const checkoutItems = isBuyNow
+    ? buyNowItem
+      ? [buyNowItem]
+      : []
+    : selectedItems;
   const subtotal = checkoutItems.reduce(
     (sum, item) => sum + item.product.price * item.quantity,
     0,
@@ -142,46 +227,25 @@ export default function PaymentScreen() {
   const handlePlaceOrder = async () => {
     if (isProfileLoading || buyNowLoading) return;
     if (isBuyNow && !buyNowItem) {
-      Alert.alert("S\u1ea3n ph\u1ea9m kh\u00f4ng kh\u1ea3 d\u1ee5ng", "Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c s\u1ea3n ph\u1ea9m \u0111\u1ec3 \u0111\u1eb7t h\u00e0ng. Vui l\u00f2ng quay l\u1ea1i th\u1eed l\u1ea1i.");
-      return;
-    }
-    if (checkoutItems.length === 0) {
-      Alert.alert("L\u1ed7i", "Kh\u00f4ng c\u00f3 s\u1ea3n ph\u1ea9m n\u00e0o \u0111\u01b0\u1ee3c ch\u1ecdn \u0111\u1ec3 thanh to\u00e1n.");
-      return;
-    }
-    if (!isAuthenticated) {
-      Alert.alert("\u0110\u0103ng nh\u1eadp", "Vui l\u00f2ng \u0111\u0103ng nh\u1eadp tr\u01b0\u1edbc khi \u0111\u1eb7t h\u00e0ng.", [
-        { text: "\u0110\u1ec3 sau", style: "cancel" },
-        { text: "\u0110\u0103ng nh\u1eadp", onPress: () => router.push("/(auth)/login") },
-      ]);
-      return;
-    }
-    if (profileLoadError) {
-      Alert.alert("Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c h\u1ed3 s\u01a1", profileLoadError);
+      Alert.alert(
+        "S\u1ea3n ph\u1ea9m kh\u00f4ng kh\u1ea3 d\u1ee5ng",
+        "Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c s\u1ea3n ph\u1ea9m \u0111\u1ec3 \u0111\u1eb7t h\u00e0ng. Vui l\u00f2ng quay l\u1ea1i th\u1eed l\u1ea1i.",
+      );
       return;
     }
 
-    const missingProfileFields = [
-      !recipientName.trim() ? "h\u1ecd t\u00ean" : "",
-      !phone.trim() ? "s\u1ed1 \u0111i\u1ec7n tho\u1ea1i" : "",
-      !address.trim() ? "\u0111\u1ecba ch\u1ec9 giao h\u00e0ng" : "",
-    ].filter(Boolean);
-    if (missingProfileFields.length > 0) {
-      Alert.alert(
-        "C\u1ea7n c\u1eadp nh\u1eadt h\u1ed3 s\u01a1",
-        "Vui l\u00f2ng c\u1eadp nh\u1eadt " + missingProfileFields.join(", ") + " trong h\u1ed3 s\u01a1 tr\u01b0\u1edbc khi ti\u1ebfp t\u1ee5c \u0111\u1eb7t h\u00e0ng.",
-        [
-          { text: "\u0110\u1ec3 sau", style: "cancel" },
-          { text: "C\u1eadp nh\u1eadt h\u1ed3 s\u01a1", onPress: () => router.push("/profile/edit") },
-        ],
-      );
+    setDeliveryInfoValidationAttempted(true);
+    if (missingPhone || missingAddress) return;
+
+    if (!recipientName.trim()) {
+      Alert.alert("Lỗi", "Vui lòng điền đầy đủ thông tin giao hàng.");
       return;
     }
 
     setSubmitting(true);
     try {
       const orderId = await createCustomerOrder({
-        items: checkoutItems.map((item) => ({
+        items: selectedItems.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
           variantLabel: item.variant,
@@ -191,25 +255,26 @@ export default function PaymentScreen() {
         address: address.trim(),
         paymentMethod,
         note: note.trim(),
-        voucherCode: isBuyNow ? undefined : voucherCode,
+        voucherCode,
       });
 
-      // Persist the order before clearing the customer's cart.
-      const cartError = isBuyNow ? null : await clearSelectedCart();
-      if (cartError) {
-        Alert.alert(
-          "\u0110\u00e3 \u0111\u1eb7t h\u00e0ng",
-          "\u0110\u01a1n h\u00e0ng \u0111\u00e3 \u0111\u01b0\u1ee3c l\u01b0u nh\u01b0ng kh\u00f4ng x\u00f3a \u0111\u01b0\u1ee3c m\u1ed9t s\u1ed1 s\u1ea3n ph\u1ea9m kh\u1ecfi gi\u1ecf: " + cartError,
-        );
-      }
-      router.replace({ pathname: "/order-success", params: { orderId } });
-    } catch (error) {
-      Alert.alert(
-        "Ch\u01b0a \u0111\u1eb7t \u0111\u01b0\u1ee3c h\u00e0ng",
-        error instanceof Error ? error.message : "Vui l\u00f2ng ki\u1ec3m tra k\u1ebft n\u1ed1i v\u00e0 th\u1eed l\u1ea1i.",
-      );
-    } finally {
+      const cartError = await clearSelectedCart();
       setSubmitting(false);
+      router.replace({
+        pathname: "/order-success",
+        params: {
+          orderId,
+          ...(cartError ? { cartCleanupError: cartError } : {}),
+        },
+      });
+    } catch (error) {
+      setSubmitting(false);
+      Alert.alert(
+        "Không thể đặt hàng",
+        error instanceof Error
+          ? error.message
+          : "Đã xảy ra lỗi khi lưu đơn hàng.",
+      );
     }
   };
 
@@ -259,21 +324,25 @@ export default function PaymentScreen() {
               />
               <Text style={styles.cardTitle}>Địa chỉ giao hàng</Text>
             </View>
-            <Pressable
-              hitSlop={6}
-              onPress={() => router.push("/profile/edit")}
-            >
+            <Pressable hitSlop={6} onPress={() => router.push("/profile/edit")}>
               <Text style={styles.changeActionText}>
                 {"Thay \u0111\u1ed5i"}
               </Text>
             </Pressable>
           </View>
+          {profileLoadError ? (
+            <Text style={styles.profileLoadError}>{profileLoadError}</Text>
+          ) : null}
 
           <View style={styles.addressInfo}>
             <Text style={styles.recipientName}>
-              {recipientName || "H\u1ecd t\u00ean ch\u01b0a c\u1eadp nh\u1eadt"}{" \u00b7 "}{phone || "Ch\u01b0a c\u1eadp nh\u1eadt S\u0110T"}
+              {recipientName || "H\u1ecd t\u00ean ch\u01b0a c\u1eadp nh\u1eadt"}
+              {" \u00b7 "}
+              {phone || "Ch\u01b0a c\u1eadp nh\u1eadt S\u0110T"}
             </Text>
-            <Text style={styles.addressDetail}>{address || "Ch\u01b0a c\u1eadp nh\u1eadt \u0111\u1ecba ch\u1ec9"}</Text>
+            <Text style={styles.addressDetail}>
+              {address || "Ch\u01b0a c\u1eadp nh\u1eadt \u0111\u1ecba ch\u1ec9"}
+            </Text>
           </View>
         </View>
 
@@ -466,6 +535,12 @@ export default function PaymentScreen() {
         </View>
       </ScrollView>
 
+      {deliveryInfoError ? (
+        <Text accessibilityRole="alert" style={styles.deliveryInfoError}>
+          {deliveryInfoError}
+        </Text>
+      ) : null}
+
       {/* Bottom Sticky Action */}
       <View style={styles.bottomBar}>
         <View style={styles.bottomLeft}>
@@ -474,15 +549,19 @@ export default function PaymentScreen() {
         </View>
         <Pressable
           accessibilityRole="button"
-          disabled={submitting || isProfileLoading || buyNowLoading}
+          disabled={submitting || profileLoading}
           onPress={handlePlaceOrder}
           style={[
             styles.submitButton,
-            (submitting || isProfileLoading || buyNowLoading) && styles.submitButtonDisabled,
+            (submitting || profileLoading) && styles.submitButtonDisabled,
           ]}
         >
           <Text style={styles.submitButtonText}>
-            {submitting ? "Đang đặt hàng..." : "Đặt hàng"}
+            {profileLoading
+              ? "Đang tải thông tin..."
+              : submitting
+                ? "Đang đặt hàng..."
+                : "Đặt hàng"}
           </Text>
         </Pressable>
       </View>
@@ -566,6 +645,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.muted,
     lineHeight: 19,
+  },
+  profileLoadError: {
+    fontSize: 12,
+    color: colors.danger,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  deliveryInfoError: {
+    color: colors.danger,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    backgroundColor: colors.white,
+  },
+  addressForm: {
+    gap: 8,
+  },
+  input: {
+    height: 42,
+    borderWidth: 1,
+    borderColor: "#EDF1F3",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: colors.ink,
+    backgroundColor: "#FBFCFD",
+  },
+  multilineInput: {
+    height: 60,
+    paddingTop: 8,
+    textAlignVertical: "top",
   },
   productRow: {
     flexDirection: "row",
@@ -743,3 +854,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+function setBuyNowResult(arg0: { productId: string; item: null }) {
+  throw new Error("Function not implemented.");
+}

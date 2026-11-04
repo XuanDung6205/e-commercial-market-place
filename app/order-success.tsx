@@ -8,18 +8,27 @@ import { colors } from '@/src/constants/colors';
 import { getMyOrderById } from '@/src/services/order.service';
 
 export default function OrderSuccessScreen() {
-  const { orderId, orderNumber } = useLocalSearchParams<{
+  const { orderId, orderNumber, cartCleanupError } = useLocalSearchParams<{
     orderId?: string;
     orderNumber?: string;
+    cartCleanupError?: string;
   }>();
   const [savedOrderNumber, setSavedOrderNumber] = useState(orderNumber ?? '');
+  const [orderLoadError, setOrderLoadError] = useState('');
 
   useEffect(() => {
     if (!orderId || orderNumber) return;
     let active = true;
     void getMyOrderById(orderId).then((order) => {
       if (active && order) setSavedOrderNumber(order.orderNumber);
-    }).catch(() => undefined);
+      if (active && !order) setOrderLoadError('Không tìm thấy đơn hàng trong lịch sử của bạn.');
+    }).catch((error: unknown) => {
+      if (active) {
+        setOrderLoadError(
+          error instanceof Error ? error.message : 'Không thể tải thông tin đơn hàng.',
+        );
+      }
+    });
     return () => { active = false; };
   }, [orderId, orderNumber]);
 
@@ -41,8 +50,18 @@ export default function OrderSuccessScreen() {
           {savedOrderNumber ? `Mã đơn hàng: #${savedOrderNumber}` : 'Đơn hàng đã được lưu'}
         </Text>
         <Text style={styles.subtitle}>
-          Cảm ơn bạn đã mua sắm tại Chợ Mây. Đơn hàng của bạn đã được tiếp nhận và đang được xử lý.
+          Cảm ơn bạn đã mua sắm tại Chợ Mây. Đơn hàng của bạn đang chờ xác nhận.
         </Text>
+        {cartCleanupError ? (
+          <Text style={styles.warningText}>
+            Đơn hàng đã được lưu, nhưng giỏ hàng chưa thể cập nhật: {cartCleanupError}
+          </Text>
+        ) : null}
+        {orderLoadError ? (
+          <Text style={styles.warningText}>
+            Không thể tải mã đơn hàng: {orderLoadError}
+          </Text>
+        ) : null}
 
         <View style={styles.buttonGroup}>
           <Pressable
@@ -105,6 +124,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 36,
+  },
+  warningText: {
+    fontSize: 13,
+    color: colors.danger,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 16,
   },
   buttonGroup: {
     width: '100%',

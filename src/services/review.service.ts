@@ -259,6 +259,54 @@ export const ReviewService = {
     }
   },
 
+  async getUserReviewsForProducts(
+    productIds: string[]
+  ): Promise<{ reviews: Record<string, Review>; error: string | null }> {
+    const validProductIds = [...new Set(productIds.filter(isUuid))];
+    if (validProductIds.length === 0) return { reviews: {}, error: null };
+
+    try {
+      const currentUser = await this.getCurrentUser();
+      if (!currentUser) {
+        return { reviews: {}, error: 'Vui lòng đăng nhập để xem đánh giá của bạn.' };
+      }
+
+      const { data, error } = await supabase
+        .from('reviews')
+        .select(`
+          id,
+          product_id,
+          user_id,
+          order_id,
+          rating,
+          comment,
+          review_images (image_url),
+          tags,
+          status,
+          created_at,
+          updated_at,
+          profiles:profiles!reviews_user_id_fkey (
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq('user_id', currentUser.id)
+        .in('product_id', validProductIds);
+
+      if (error) return { reviews: {}, error: error.message };
+
+      const rows = (data ?? []) as unknown as ReviewRow[];
+      const reviews = rows.reduce<Record<string, Review>>((result, row) => {
+        result[row.product_id] = mapRowToReview(row, currentUser.id);
+        return result;
+      }, {});
+      return { reviews, error: null };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Lỗi khi tải đánh giá của bạn.';
+      return { reviews: {}, error: message };
+    }
+  },
+
   /**
    * Create a new review in Supabase
    */
@@ -269,10 +317,13 @@ export const ReviewService = {
     comment: string;
     tags?: string[];
     images?: string[];
-    orderId?: string | null;
+    orderId: string;
   }): Promise<{ review: Review | null; error: string | null }> {
     if (!isUuid(params.productId)) {
       return { review: null, error: 'Mã sản phẩm không hợp lệ.' };
+    }
+    if (!isUuid(params.orderId)) {
+      return { review: null, error: 'Chỉ có thể đánh giá sản phẩm từ đơn hàng đã giao.' };
     }
 
     try {
@@ -280,6 +331,38 @@ export const ReviewService = {
 
       if (!currentUser) {
         return { review: null, error: 'Vui lòng đăng nhập để đánh giá sản phẩm.' };
+      }
+
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('id', params.orderId)
+        .eq('user_id', currentUser.id)
+        .eq('status', 'delivered')
+        .maybeSingle();
+
+      if (orderError) return { review: null, error: orderError.message };
+      if (!order) {
+        return {
+          review: null,
+          error: 'Bạn chỉ có thể đánh giá sản phẩm từ đơn hàng đã giao của mình.',
+        };
+      }
+
+      const { data: purchasedItem, error: itemError } = await supabase
+        .from('order_items')
+        .select('id')
+        .eq('order_id', order.id)
+        .eq('product_id', params.productId)
+        .limit(1)
+        .maybeSingle();
+
+      if (itemError) return { review: null, error: itemError.message };
+      if (!purchasedItem) {
+        return {
+          review: null,
+          error: 'Sản phẩm này không thuộc đơn hàng đã giao được chọn.',
+        };
       }
 
       const { review: existingReview } =
@@ -300,11 +383,11 @@ export const ReviewService = {
         .insert({
           product_id: params.productId,
           user_id: currentUser.id,
-          order_id: params.orderId || null,
+          order_id: params.orderId,
           rating: cleanRating,
           comment: params.comment.trim(),
           tags: params.tags || [],
-          status: 'approved',
+          status: 'pending',
         })
         .select(`
         id,

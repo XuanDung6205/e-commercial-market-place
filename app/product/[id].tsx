@@ -16,7 +16,6 @@ import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -57,7 +56,6 @@ export default function ProductDetailScreen() {
 
   // Reviews state from Supabase
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [userReview, setUserReview] = useState<Review | null>(null);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [sortOption, setSortOption] = useState<ReviewSortOption>("newest");
@@ -121,7 +119,6 @@ export default function ProductDetailScreen() {
   const loadReviews = useCallback(async () => {
     if (!product) {
       setReviews([]);
-      setUserReview(null);
       setReviewError(null);
       setStats({
         average: 0,
@@ -136,10 +133,10 @@ export default function ProductDetailScreen() {
     setReviewError(null);
 
     try {
-      const [reviewsResult, userReviewResult] = await Promise.all([
-        ReviewService.getReviewsByProduct(product.id, sortOption),
-        ReviewService.getUserReviewForProduct(product.id),
-      ]);
+      const reviewsResult = await ReviewService.getReviewsByProduct(
+        product.id,
+        sortOption,
+      );
 
       if (reviewsResult.error) {
         setReviewError(reviewsResult.error);
@@ -160,8 +157,6 @@ export default function ProductDetailScreen() {
           });
         }
       }
-
-      setUserReview(userReviewResult.review);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Lỗi kết nối khi tải đánh giá.";
@@ -209,50 +204,6 @@ export default function ProductDetailScreen() {
     const error = await toggleFavorite(product.id, product);
     if (error) {
       setActionError(error);
-    }
-  };
-
-  const handleWriteReview = async () => {
-    if (!product) return;
-
-    const user = await ReviewService.getCurrentUser();
-    if (!user) {
-      Alert.alert(
-        "Chưa đăng nhập",
-        "Vui lòng đăng nhập để viết đánh giá cho sản phẩm này.",
-        [
-          { text: "Hủy", style: "cancel" },
-          { text: "Đăng nhập", onPress: () => router.push("/(auth)/login") },
-        ],
-      );
-      return;
-    }
-
-    if (userReview) {
-      // User has already reviewed -> Edit existing review
-      router.push({
-        pathname: "/feedback",
-        params: {
-          productId: product.id,
-          productName: product.name,
-          image: product.image,
-          ...(selectedVariant ? { variant: selectedVariant } : {}),
-          reviewId: userReview.id,
-          initialRating: String(userReview.rating),
-          initialComment: userReview.comment,
-        },
-      });
-    } else {
-      // Write new review
-      router.push({
-        pathname: "/feedback",
-        params: {
-          productId: product.id,
-          productName: product.name,
-          image: product.image,
-          ...(selectedVariant ? { variant: selectedVariant } : {}),
-        },
-      });
     }
   };
 
@@ -503,35 +454,9 @@ export default function ProductDetailScreen() {
             <View>
               <Text style={styles.sectionTitle}>Đánh giá & Bình luận</Text>
               <Text style={styles.reviewsSubText}>
-                Nhận xét từ khách hàng thực tế
+                Đánh giá từ đơn hàng đã giao
               </Text>
             </View>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={
-                userReview ? "Sửa đánh giá của bạn" : "Viết đánh giá"
-              }
-              hitSlop={8}
-              onPress={handleWriteReview}
-              style={[
-                styles.writeReviewBtn,
-                userReview && styles.writeReviewBtnActive,
-              ]}
-            >
-              <SymbolView
-                name={{
-                  ios: "square.and.pencil",
-                  android: "edit",
-                  web: "edit",
-                }}
-                tintColor={colors.cyan}
-                size={14}
-              />
-              <Text style={styles.writeReviewText}>
-                {userReview ? "Sửa đánh giá" : "Viết đánh giá"}
-              </Text>
-            </Pressable>
           </View>
 
           {/* Rating Summary Breakdown from Supabase stats */}
@@ -605,14 +530,8 @@ export default function ProductDetailScreen() {
               </View>
               <Text style={styles.emptyTitle}>Chưa có đánh giá nào</Text>
               <Text style={styles.emptySubtitle}>
-                Hãy là người đầu tiên chia sẻ cảm nhận về sản phẩm này!
+                Đánh giá sẽ hiển thị tại đây sau khi đơn hàng được giao.
               </Text>
-              <Pressable
-                onPress={handleWriteReview}
-                style={styles.emptyWriteBtn}
-              >
-                <Text style={styles.emptyWriteBtnText}>Viết đánh giá ngay</Text>
-              </Pressable>
             </View>
           ) : (
             <View style={styles.reviewsList}>
@@ -883,26 +802,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.muted,
   },
-  writeReviewBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: colors.paleCyan,
-    borderWidth: 1,
-    borderColor: "#C6F3F9",
-  },
-  writeReviewBtnActive: {
-    backgroundColor: "#E0F7FA",
-    borderColor: colors.cyan,
-  },
-  writeReviewText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.cyan,
-  },
   sortTabsRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -993,18 +892,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 19,
     paddingHorizontal: 20,
-  },
-  emptyWriteBtn: {
-    marginTop: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 8,
-    backgroundColor: colors.cyan,
-  },
-  emptyWriteBtnText: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: "700",
   },
   bottomBar: {
     flexDirection: "row",

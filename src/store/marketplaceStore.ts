@@ -35,10 +35,21 @@ const INITIAL_STATE: StoreState = {
 let state: StoreState = { ...INITIAL_STATE, cart: [], orders: [] };
 const listeners = new Set<() => void>();
 let authSyncStarted = false;
+let authEventVersion = 0;
+let favoritesSessionReadVersion = 0;
 let loadedUserId: string | null | undefined;
 let pendingUserId: string | null | undefined;
 let pendingSync: Promise<void> | null = null;
-let syncVersion = 0;
+let syncRequestId = 0;
+let cartSyncVersion = 0;
+let favoritesSyncVersion = 0;
+let favoritesOwnerId: string | null | undefined;
+let pendingFavoritesLoad: {
+  userId: string;
+  version: number;
+  request: Promise<void>;
+} | null = null;
+const pendingFavoriteChanges = new Set<string>();
 
 function notify() {
   listeners.forEach((listener) => listener());
@@ -46,6 +57,27 @@ function notify() {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Đã xảy ra lỗi khi đồng bộ dữ liệu.';
+}
+
+function restoreFavorite(
+  currentState: StoreState,
+  previousState: StoreState,
+  productId: string,
+): StoreState {
+  const wasFavorite = previousState.favoriteIds.includes(productId);
+  const previousProduct = previousState.favorites.find((item) => item.id === productId);
+
+  return {
+    ...currentState,
+    favoriteIds: wasFavorite
+      ? currentState.favoriteIds.includes(productId)
+        ? currentState.favoriteIds
+        : [...currentState.favoriteIds, productId]
+      : currentState.favoriteIds.filter((id) => id !== productId),
+    favorites: wasFavorite && previousProduct
+      ? [previousProduct, ...currentState.favorites.filter((item) => item.id !== productId)]
+      : currentState.favorites.filter((item) => item.id !== productId),
+  };
 }
 
 async function getCartItems(userId: string): Promise<CartItem[]> {
@@ -98,7 +130,13 @@ async function getCartItems(userId: string): Promise<CartItem[]> {
   });
 }
 
-async function getFavoriteProducts(userId: string): Promise<{ ids: string[]; products: Product[] }> {
+type FavoriteProductsResult = {
+  ids: string[];
+  products: Product[];
+  unavailableCount: number;
+};
+
+async function getFavoriteProducts(userId: string): Promise<FavoriteProductsResult> {
   const { data, error } = await supabase
     .from('favorites')
     .select('product_id')
@@ -106,23 +144,110 @@ async function getFavoriteProducts(userId: string): Promise<{ ids: string[]; pro
 
   if (error) throw new Error(error.message);
 
-  const ids = (data ?? []).map((favorite) => favorite.product_id);
+  const ids = Array.from(new Set((data ?? []).map((favorite) => favorite.product_id)));
   const products = await ProductService.getByIds(ids);
-  if (products.length !== ids.length) {
-    throw new Error('Một sản phẩm yêu thích không còn hoạt động trên Supabase.');
-  }
-  return { ids, products };
+  return { ids, products, unavailableCount: ids.length - products.length };
 }
 
-async function syncCustomerData(userId: string | null, force = false): Promise<void> {
+async function syncFavoritesForUser(userId: string | null, force = false): Promise<void> {
+  if (!force && favoritesOwnerId === userId && !state.favoritesLoading) return;
+  if (userId && pendingFavoritesLoad?.userId === userId) {
+    return pendingFavoritesLoad.request;
+  }
+
+  const ownerChanged = favoritesOwnerId !== userId;
+  const requestVersion = ++favoritesSyncVersion;
+  favoritesOwnerId = userId;
+
+  if (!userId) {
+    pendingFavoritesLoad = null;
+    state = {
+      ...state,
+      favoriteIds: [],
+      favorites: [],
+      favoritesLoading: false,
+      favoritesError: null,
+    };
+    notify();
+    return;
+  }
+
+  if (ownerChanged) {
+    state = { ...state, favoriteIds: [], favorites: [] };
+  }
+  state = { ...state, favoritesLoading: true, favoritesError: null };
+  notify();
+
+  const request = (async () => {
+    try {
+      const result = await getFavoriteProducts(userId);
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw new Error(sessionError.message);
+      if (
+        requestVersion !== favoritesSyncVersion ||
+        sessionData.session?.user.id !== userId
+      ) {
+        if (requestVersion === favoritesSyncVersion) {
+          favoritesOwnerId = sessionData.session?.user.id ?? null;
+          state = {
+            ...state,
+            favoriteIds: [],
+            favorites: [],
+            favoritesLoading: false,
+            favoritesError: null,
+          };
+          notify();
+          if (favoritesOwnerId) void syncFavoritesForUser(favoritesOwnerId, true);
+        }
+        return;
+      }
+
+      state = {
+        ...state,
+        favoriteIds: result.ids,
+        favorites: result.products,
+        favoritesLoading: false,
+        favoritesError: result.unavailableCount > 0
+          ? `${result.unavailableCount} sản phẩm yêu thích không còn hiển thị trong danh mục.`
+          : null,
+      };
+      notify();
+    } catch (error) {
+      if (requestVersion !== favoritesSyncVersion) return;
+      state = {
+        ...state,
+        favoritesLoading: false,
+        favoritesError: getErrorMessage(error),
+      };
+      notify();
+    } finally {
+      if (pendingFavoritesLoad?.version === requestVersion) {
+        pendingFavoritesLoad = null;
+      }
+    }
+  })();
+
+  pendingFavoritesLoad = { userId, version: requestVersion, request };
+  await request;
+}
+
+async function syncCustomerData(
+  userId: string | null,
+  force = false,
+  syncFavorites = true,
+): Promise<void> {
   if (!force && loadedUserId === userId && !state.cartLoading && !state.favoritesLoading) return;
   if (!force && pendingSync && pendingUserId === userId) return pendingSync;
 
-  const requestVersion = ++syncVersion;
+  const requestId = ++syncRequestId;
+  const cartRequestVersion = ++cartSyncVersion;
   pendingUserId = userId;
 
   if (!userId) {
     loadedUserId = null;
+    favoritesOwnerId = null;
+    favoritesSyncVersion += 1;
+    pendingFavoritesLoad = null;
     pendingSync = null;
     pendingUserId = undefined;
     state = {
@@ -151,37 +276,32 @@ async function syncCustomerData(userId: string | null, force = false): Promise<v
     orders: loadedUserId === userId ? state.orders : [],
     reviews: loadedUserId === userId ? state.reviews : [],
     cartLoading: true,
-    favoritesLoading: true,
+    favoritesLoading: syncFavorites ? true : state.favoritesLoading,
     cartError: null,
-    favoritesError: null,
+    favoritesError: syncFavorites ? null : state.favoritesError,
   };
   notify();
 
   const request = Promise.allSettled([
     getCartItems(userId),
-    getFavoriteProducts(userId),
-  ]).then(([cartResult, favoritesResult]) => {
-    if (requestVersion !== syncVersion) return;
-
+    syncFavorites ? syncFavoritesForUser(userId, true) : Promise.resolve(),
+  ]).then(([cartResult]) => {
+    const cartIsCurrent = cartRequestVersion === cartSyncVersion;
+    if (!cartIsCurrent) return;
     state = {
       ...state,
-      cart: cartResult.status === 'fulfilled' ? cartResult.value : [],
-      favorites:
-        favoritesResult.status === 'fulfilled' ? favoritesResult.value.products : [],
-      favoriteIds:
-        favoritesResult.status === 'fulfilled' ? favoritesResult.value.ids : [],
+      cart: cartResult.status === 'fulfilled' ? cartResult.value : state.cart,
       cartLoading: false,
-      favoritesLoading: false,
-      cartError: cartResult.status === 'rejected' ? getErrorMessage(cartResult.reason) : null,
-      favoritesError:
-        favoritesResult.status === 'rejected'
-          ? getErrorMessage(favoritesResult.reason)
-          : null,
+      cartError: cartResult.status === 'rejected'
+        ? getErrorMessage(cartResult.reason)
+        : null,
     };
-    loadedUserId = userId;
+    if (cartResult.status === 'fulfilled') {
+      loadedUserId = userId;
+    }
     notify();
   }).finally(() => {
-    if (requestVersion === syncVersion) {
+    if (requestId === syncRequestId) {
       pendingSync = null;
       pendingUserId = undefined;
     }
@@ -224,19 +344,25 @@ function startCustomerDataSync() {
   authSyncStarted = true;
 
   supabase.auth.onAuthStateChange((event, session) => {
+    const eventVersion = ++authEventVersion;
     if (event === 'SIGNED_OUT') {
       void syncCustomerData(null, true);
     } else if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
       setTimeout(() => {
+        if (eventVersion !== authEventVersion) return;
         void syncCustomerData(session?.user.id ?? null);
       }, 0);
     }
   });
 
+  const initializationVersion = authEventVersion;
   void supabase.auth.getSession().then(({ data, error }) => {
+    if (authEventVersion !== initializationVersion) return;
     if (error) {
       state = {
         ...state,
+        favoriteIds: [],
+        favorites: [],
         cartLoading: false,
         favoritesLoading: false,
         cartError: error.message,
@@ -279,6 +405,49 @@ export const marketplaceStore = {
         return;
       }
       return syncCustomerData(data.session?.user.id ?? null, true);
+    });
+  },
+
+  refreshFavorites() {
+    const requestVersion = ++favoritesSessionReadVersion;
+    const eventVersion = authEventVersion;
+    return supabase.auth.getSession().then(({ data, error }) => {
+      if (requestVersion !== favoritesSessionReadVersion) return;
+      if (eventVersion !== authEventVersion) {
+        return supabase.auth.getSession().then(({ data: latest, error: latestError }) => {
+          if (requestVersion !== favoritesSessionReadVersion) return;
+          if (latestError) throw new Error(latestError.message);
+          return syncFavoritesForUser(latest.session?.user.id ?? null, true);
+        });
+      }
+      if (error) {
+        favoritesSyncVersion += 1;
+        favoritesOwnerId = undefined;
+        pendingFavoritesLoad = null;
+        state = {
+          ...state,
+          favoriteIds: [],
+          favorites: [],
+          favoritesLoading: false,
+          favoritesError: error.message,
+        };
+        notify();
+        return;
+      }
+      return syncFavoritesForUser(data.session?.user.id ?? null, true);
+    }).catch((error: unknown) => {
+      if (requestVersion !== favoritesSessionReadVersion) return;
+      favoritesSyncVersion += 1;
+      favoritesOwnerId = undefined;
+      pendingFavoritesLoad = null;
+      state = {
+        ...state,
+        favoriteIds: [],
+        favorites: [],
+        favoritesLoading: false,
+        favoritesError: getErrorMessage(error),
+      };
+      notify();
     });
   },
 
@@ -326,7 +495,7 @@ export const marketplaceStore = {
         if (!data) throw new Error('Supabase không xác nhận đã thêm sản phẩm vào giỏ hàng.');
       }
 
-      await syncCustomerData(userId, true);
+      await syncCustomerData(userId, true, false);
       return null;
     } catch (error) {
       return getErrorMessage(error);
@@ -489,34 +658,22 @@ export const marketplaceStore = {
 
   // Favorites Actions
   async toggleFavorite(productId: string, product?: Product): Promise<string | null> {
-    const previousState = state;
-    const exists = state.favoriteIds.includes(productId);
-    let favoriteProduct = product ?? state.favorites.find((item) => item.id === productId);
-
-    if (!exists) {
-      if (!favoriteProduct) {
-        try {
-          favoriteProduct = await ProductService.getById(productId) ?? undefined;
-        } catch (error) {
-          return getErrorMessage(error);
-        }
-      }
-      if (!favoriteProduct) return 'Không tìm thấy sản phẩm đang hoạt động.';
-      state = {
-        ...state,
-        favoriteIds: [...state.favoriteIds, productId],
-        favorites: [favoriteProduct, ...state.favorites.filter((item) => item.id !== productId)],
-      };
-    } else {
-      state = {
-        ...state,
-        favoriteIds: state.favoriteIds.filter((id) => id !== productId),
-        favorites: state.favorites.filter((item) => item.id !== productId),
-      };
-    }
-    notify();
+    if (pendingFavoriteChanges.has(productId)) return null;
+    pendingFavoriteChanges.add(productId);
 
     try {
+      const exists = state.favoriteIds.includes(productId);
+      let favoriteProduct = product ?? state.favorites.find((item) => item.id === productId);
+
+      if (!exists) {
+        if (!favoriteProduct) {
+          favoriteProduct = await ProductService.getById(productId) ?? undefined;
+        }
+      }
+      if (!exists && !favoriteProduct) {
+        return 'Không tìm thấy sản phẩm đang hoạt động.';
+      }
+
       const userId = await currentUserId();
       if (exists) {
         const { data, error } = await supabase
@@ -534,21 +691,58 @@ export const marketplaceStore = {
           .insert({ user_id: userId, product_id: productId })
           .select('product_id')
           .maybeSingle();
-        if (error) throw new Error(error.message);
-        if (!data) throw new Error('Supabase không xác nhận đã thêm sản phẩm yêu thích.');
+
+        if (error?.code === '23505') {
+          const { data: existingFavorite, error: selectError } = await supabase
+            .from('favorites')
+            .select('product_id')
+            .eq('user_id', userId)
+            .eq('product_id', productId)
+            .maybeSingle();
+          if (selectError) throw new Error(selectError.message);
+          if (!existingFavorite) throw new Error(error.message);
+        } else if (error) {
+          throw new Error(error.message);
+        } else if (!data) {
+          throw new Error('Supabase không xác nhận đã lưu sản phẩm yêu thích.');
+        }
       }
+
+      favoritesSyncVersion += 1;
+      pendingFavoritesLoad = null;
+      state = {
+        ...state,
+        favoritesLoading: false,
+        favoritesError: null,
+        favoriteIds: exists
+          ? state.favoriteIds.filter((id) => id !== productId)
+          : Array.from(new Set([...state.favoriteIds, productId])),
+        favorites: exists
+          ? state.favorites.filter((item) => item.id !== productId)
+          : favoriteProduct
+            ? [favoriteProduct, ...state.favorites.filter((item) => item.id !== productId)]
+            : state.favorites,
+      };
+      notify();
       return null;
     } catch (error) {
-      state = previousState;
-      notify();
       return getErrorMessage(error);
+    } finally {
+      pendingFavoriteChanges.delete(productId);
     }
   },
 
   async removeFavorite(productId: string): Promise<string | null> {
+    if (pendingFavoriteChanges.has(productId)) return null;
+    pendingFavoriteChanges.add(productId);
+
     const previousState = state;
+    favoritesSyncVersion += 1;
+    pendingFavoritesLoad = null;
     state = {
       ...state,
+      favoritesLoading: false,
+      favoritesError: null,
       favoriteIds: state.favoriteIds.filter((id) => id !== productId),
       favorites: state.favorites.filter((product) => product.id !== productId),
     };
@@ -567,9 +761,11 @@ export const marketplaceStore = {
       if (!data) throw new Error('Không thể xóa sản phẩm khỏi yêu thích.');
       return null;
     } catch (error) {
-      state = previousState;
+      state = restoreFavorite(state, previousState, productId);
       notify();
       return getErrorMessage(error);
+    } finally {
+      pendingFavoriteChanges.delete(productId);
     }
   },
 
@@ -742,7 +938,7 @@ export function useFavorites() {
     count: s.favorites.length,
     loading: s.favoritesLoading,
     error: s.favoritesError,
-    refresh: marketplaceStore.refreshCustomerData.bind(marketplaceStore),
+    refresh: marketplaceStore.refreshFavorites.bind(marketplaceStore),
     toggleFavorite: marketplaceStore.toggleFavorite.bind(marketplaceStore),
     removeFavorite: marketplaceStore.removeFavorite.bind(marketplaceStore),
     isFavorite: (productId: string) => s.favoriteIds.includes(productId),

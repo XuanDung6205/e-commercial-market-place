@@ -103,7 +103,7 @@ export default function RegisterScreen() {
 
     setIsSubmitting(true);
     try {
-      const { data, error } = await signUpWithEmail(cleanName, cleanEmail, password);
+      const { data, error } = await signUpWithEmail(cleanEmail, password, cleanName);
       if (error) {
         setErrorMessage(
           error.message.toLowerCase().includes("already registered") ||
