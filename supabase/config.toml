@@ -1,0 +1,2 @@
+[functions.product-assistant]
+verify_jwt = true

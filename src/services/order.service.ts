@@ -15,15 +15,16 @@ type OrderRow = {
   recipient_phone: string;
   delivery_address: string;
   created_at: string;
-  order_items?: {
-    id: string;
-    product_id: string | null;
-    product_name: string;
-    variant_label: string | null;
-    quantity: number;
-    unit_price: number | string;
-    products: { product_images?: { image_url: string }[] } | null;
-  }[];
+};
+
+type OrderItemRow = {
+  id: string;
+  order_id: string;
+  product_id: string | null;
+  product_name: string;
+  variant_label: string | null;
+  quantity: number;
+  unit_price: number | string;
 };
 
 export type CreateCustomerOrderInput = {
@@ -36,16 +37,16 @@ export type CreateCustomerOrderInput = {
   voucherCode?: string;
 };
 
-function mapOrder(row: OrderRow): Order {
+function mapOrder(row: OrderRow, orderItems: OrderItemRow[], imagesByProductId: Map<string, string>): Order {
   const subtotal = Number(row.subtotal);
-  const items: OrderItem[] = (row.order_items ?? []).map((item) => ({
+  const items: OrderItem[] = orderItems.map((item) => ({
     id: item.id,
     productId: item.product_id ?? '',
     productName: item.product_name,
     variant: item.variant_label ?? undefined,
     quantity: item.quantity,
     price: Number(item.unit_price),
-    image: item.products?.product_images?.[0]?.image_url ?? '',
+    image: item.product_id ? imagesByProductId.get(item.product_id) ?? '' : '',
   }));
   const createdAt = new Date(row.created_at);
 
@@ -72,12 +73,44 @@ function mapOrder(row: OrderRow): Order {
 const orderSelection = `
   id, order_number, status, payment_method, payment_status,
   subtotal, discount_amount, shipping_fee, total_amount,
-  recipient_name, recipient_phone, delivery_address, created_at,
-  order_items (
-    id, product_id, product_name, variant_label, quantity, unit_price,
-    products (product_images (image_url))
-  )
+  recipient_name, recipient_phone, delivery_address, created_at
 `;
+
+async function loadOrderItems(orderIds: string[]) {
+  if (orderIds.length === 0) return { itemsByOrderId: new Map<string, OrderItemRow[]>(), imagesByProductId: new Map<string, string>() };
+
+  const { data, error } = await supabase
+    .from('order_items')
+    .select('id, order_id, product_id, product_name, variant_label, quantity, unit_price')
+    .in('order_id', orderIds)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+
+  const items = (data ?? []) as unknown as OrderItemRow[];
+  const itemsByOrderId = new Map<string, OrderItemRow[]>();
+  for (const item of items) {
+    const orderItems = itemsByOrderId.get(item.order_id) ?? [];
+    orderItems.push(item);
+    itemsByOrderId.set(item.order_id, orderItems);
+  }
+
+  const productIds = [...new Set(items.flatMap((item) => item.product_id ? [item.product_id] : []))];
+  const imagesByProductId = new Map<string, string>();
+  if (productIds.length > 0) {
+    const { data: imageRows, error: imageError } = await supabase
+      .from('product_images')
+      .select('product_id, image_url, sort_order')
+      .in('product_id', productIds)
+      .order('sort_order', { ascending: true });
+    // Order history must remain readable even if a product image was removed or hidden.
+    if (!imageError) {
+      for (const image of imageRows ?? []) {
+        if (!imagesByProductId.has(image.product_id)) imagesByProductId.set(image.product_id, image.image_url);
+      }
+    }
+  }
+  return { itemsByOrderId, imagesByProductId };
+}
 
 async function requireUserId() {
   const { data, error } = await supabase.auth.getUser();
@@ -101,7 +134,12 @@ export async function createCustomerOrder(input: CreateCustomerOrderInput): Prom
     p_customer_note: input.note?.trim() || null,
     p_voucher_code: input.voucherCode?.trim() || null,
   });
-  if (error) throw error;
+  if (error) {
+    if (error.code === 'PGRST202' || /create_customer_order.*(not found|schema cache)/i.test(error.message)) {
+      throw new Error('Supabase chưa cài hàm đặt hàng. Hãy chạy supabase/migrations/20261103_customer_orders.sql rồi thử lại.');
+    }
+    throw error;
+  }
   if (typeof data !== 'string') throw new Error('Không nhận được mã đơn hàng từ máy chủ.');
   return data;
 }
@@ -114,7 +152,9 @@ export async function getMyOrders(): Promise<Order[]> {
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return ((data ?? []) as unknown as OrderRow[]).map(mapOrder);
+  const rows = (data ?? []) as unknown as OrderRow[];
+  const { itemsByOrderId, imagesByProductId } = await loadOrderItems(rows.map((row) => row.id));
+  return rows.map((row) => mapOrder(row, itemsByOrderId.get(row.id) ?? [], imagesByProductId));
 }
 
 export async function getMyOrderById(orderId: string): Promise<Order | null> {
@@ -126,7 +166,10 @@ export async function getMyOrderById(orderId: string): Promise<Order | null> {
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
-  return data ? mapOrder(data as unknown as OrderRow) : null;
+  if (!data) return null;
+  const row = data as unknown as OrderRow;
+  const { itemsByOrderId, imagesByProductId } = await loadOrderItems([row.id]);
+  return mapOrder(row, itemsByOrderId.get(row.id) ?? [], imagesByProductId);
 }
 
 export async function cancelMyOrder(orderId: string): Promise<void> {

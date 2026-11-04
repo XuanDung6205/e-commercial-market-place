@@ -1,7 +1,5 @@
-import * as Linking from "expo-linking";
 import { Link, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -20,9 +18,6 @@ import EyeOffIcon from "@/assets/images/figma/auth-login/eye-off.svg";
 import PlusIcon from "@/assets/images/figma/auth-login/plus.svg";
 import ShoppingBagIcon from "@/assets/images/figma/auth-login/shopping-bag.svg";
 import { signInWithEmail } from "@/src/services/auth.service";
-import { supabase } from "@/src/services/supabase";
-
-type SocialProvider = "google" | "facebook";
 
 const colors = {
   ink: "#2B2F3A",
@@ -40,7 +35,6 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [socialProvider, setSocialProvider] = useState<SocialProvider | null>(null);
 
   const handleLogin = async () => {
     setErrorMessage("");
@@ -71,59 +65,6 @@ export default function LoginScreen() {
       setErrorMessage("Không thể kết nối. Vui lòng kiểm tra mạng và thử lại.");
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleSocialLogin = async (provider: SocialProvider) => {
-    setErrorMessage("");
-    setSocialProvider(provider);
-
-    try {
-      const redirectTo = Linking.createURL("auth/callback");
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: { redirectTo, skipBrowserRedirect: true },
-      });
-
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      if (!data.url) {
-        setErrorMessage("Không thể mở trang đăng nhập. Vui lòng thử lại.");
-        return;
-      }
-
-      if (Platform.OS === "web") {
-        window.location.assign(data.url);
-        return;
-      }
-
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-      if (result.type !== "success") return;
-
-      const callback = Linking.parse(result.url);
-      const code = callback.queryParams?.code;
-      const oauthError = callback.queryParams?.error_description;
-      if (typeof oauthError === "string") {
-        setErrorMessage(oauthError);
-        return;
-      }
-      if (typeof code !== "string") {
-        setErrorMessage("Không nhận được kết quả đăng nhập. Vui lòng thử lại.");
-        return;
-      }
-
-      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-      if (exchangeError) {
-        setErrorMessage(exchangeError.message);
-        return;
-      }
-      router.replace("/(tabs)/home");
-    } catch {
-      setErrorMessage("Đăng nhập bằng mạng xã hội thất bại. Vui lòng thử lại.");
-    } finally {
-      setSocialProvider(null);
     }
   };
 
@@ -218,7 +159,7 @@ export default function LoginScreen() {
 
               <Pressable
                 accessibilityRole="button"
-                disabled={isSubmitting || socialProvider !== null}
+                disabled={isSubmitting}
                 onPress={handleLogin}
                 style={({ pressed }) => [
                   styles.submitButton,
@@ -232,53 +173,6 @@ export default function LoginScreen() {
                   <Text style={styles.submitButtonText}>Đăng nhập</Text>
                 )}
               </Pressable>
-
-              <View style={styles.socialDivider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>Hoặc đăng nhập với</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <View style={styles.socialButtons}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Đăng nhập bằng Google"
-                  disabled={isSubmitting || socialProvider !== null}
-                  onPress={() => handleSocialLogin("google")}
-                  style={({ pressed }) => [
-                    styles.socialButton,
-                    pressed && styles.socialButtonPressed,
-                    (isSubmitting || socialProvider !== null) && styles.socialButtonDisabled,
-                  ]}
-                >
-                  {socialProvider === "google" ? (
-                    <ActivityIndicator color="#4285F4" size="small" />
-                  ) : (
-                    <Text style={styles.googleMark}>G</Text>
-                  )}
-                  <Text style={styles.socialButtonText}>Google</Text>
-                </Pressable>
-
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Đăng nhập bằng Facebook"
-                  disabled={isSubmitting || socialProvider !== null}
-                  onPress={() => handleSocialLogin("facebook")}
-                  style={({ pressed }) => [
-                    styles.socialButton,
-                    pressed && styles.socialButtonPressed,
-                    (isSubmitting || socialProvider !== null) && styles.socialButtonDisabled,
-                  ]}
-                >
-                  {socialProvider === "facebook" ? (
-                    <ActivityIndicator color="#1877F2" size="small" />
-                  ) : (
-                    <Text style={styles.facebookMark}>f</Text>
-                  )}
-                  <Text style={styles.socialButtonText}>Facebook</Text>
-                </Pressable>
-              </View>
-
             </View>
           </View>
 
@@ -470,63 +364,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 21,
     fontWeight: "700",
-  },
-  socialDivider: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginTop: 18,
-    marginBottom: 13,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  dividerText: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  socialButtons: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  socialButton: {
-    minHeight: 48,
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 9,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-  },
-  socialButtonPressed: {
-    backgroundColor: "#F7FAFC",
-  },
-  socialButtonDisabled: {
-    opacity: 0.6,
-  },
-  socialButtonText: {
-    color: colors.ink,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  googleMark: {
-    color: "#4285F4",
-    fontSize: 19,
-    lineHeight: 22,
-    fontWeight: "800",
-  },
-  facebookMark: {
-    color: "#1877F2",
-    fontSize: 22,
-    lineHeight: 24,
-    fontWeight: "800",
   },
   registerRow: {
     flexDirection: "row",

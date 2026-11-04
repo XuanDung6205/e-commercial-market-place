@@ -4,28 +4,31 @@ import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '@/src/services/supabase';
 import { C, Header, Icon, Page, Row } from '@/src/components/customer/CustomerUI';
 
-type Profile = { full_name?: string | null; phone?: string | null; avatar_url?: string | null };
+type Profile = { full_name?: string | null; phone?: string | null; address?: string | null; avatar_url?: string | null };
 
 export default function AccountScreen() {
-  const [profile, setProfile] = useState<Profile | null>({ full_name: 'Nguyễn Minh Anh' });
+  const [profile, setProfile] = useState<Profile | null>({ full_name: 'Guest', address: null });
   const [email, setEmail] = useState('khachhang@chomay.vn');
   const [error, setError] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   const loadProfile = useCallback(async () => {
     setError('');
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      setIsAuthenticated(Boolean(user));
       if (user) {
         setEmail(user.email ?? 'khachhang@chomay.vn');
-        const { data } = await supabase.from('profiles').select('full_name, phone, avatar_url').eq('id', user.id).maybeSingle();
-        setProfile(data ?? { full_name: String(user.user_metadata?.full_name ?? 'Nguyễn Minh Anh') });
+        const { data } = await supabase.from('profiles').select('full_name, phone, address, avatar_url').eq('id', user.id).maybeSingle();
+        setProfile(data ?? { full_name: String(user.user_metadata?.full_name ?? 'Guest'), address: null });
       } else {
         setEmail('khachhang@chomay.vn');
-        setProfile({ full_name: 'Nguyễn Minh Anh' });
+        setProfile({ full_name: 'Guest', address: null });
       }
     } catch {
+      setIsAuthenticated(false);
       setEmail('khachhang@chomay.vn');
-      setProfile({ full_name: 'Nguyễn Minh Anh' });
+      setProfile({ full_name: 'Guest', address: null });
     }
   }, []);
 
@@ -49,7 +52,7 @@ export default function AccountScreen() {
           {profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} /> : <Text style={styles.initials}>{(profile?.full_name || email || 'N').trim().slice(0, 1).toUpperCase()}</Text>}
         </View>
         <View style={styles.profileCopy}>
-          <Text style={styles.name}>{profile?.full_name || 'Nguyễn Minh Anh'}</Text>
+          <Text style={styles.name}>{profile?.full_name?.trim() || 'Guest'}</Text>
           <Text style={styles.email}>{email}</Text>
         </View>
         <Pressable accessibilityRole="button" onPress={() => router.push('/profile/edit')} style={styles.editButton}>
@@ -60,15 +63,22 @@ export default function AccountScreen() {
       <View style={styles.menu}>
         <Row icon="orders" title="Đơn hàng của tôi" subtitle="Theo dõi và quản lý đơn hàng" onPress={() => router.push('/my-orders')} />
         <Row icon="heart" title="Sản phẩm yêu thích" onPress={() => router.push('/(tabs)/favorites')} />
-        <Row icon="pin" title="Địa chỉ giao hàng" subtitle="25 Nguyễn Thị Minh Khai, Quận 1, TP. HCM" onPress={() => Alert.alert('Địa chỉ giao hàng', 'Địa chỉ mặc định: 25 Nguyễn Thị Minh Khai, P. Bến Nghé, Quận 1, TP. Hồ Chí Minh')} />
+        <Row icon="pin" title="Địa chỉ giao hàng" subtitle={profile?.address?.trim() || "Chưa cập nhật"} onPress={() => Alert.alert("Địa chỉ giao hàng", profile?.address?.trim() || "Chưa cập nhật")} />
         <Row icon="card" title="Phương thức thanh toán" subtitle="COD, Chuyển khoản, Ví điện tử" onPress={() => Alert.alert('Thanh toán', 'Phương thức thanh toán được chọn khi đặt hàng.')} />
         <Row icon="bell" title="Thông báo" onPress={() => router.push('/(tabs)/inbox')} />
         <Row icon="help" title="Trợ giúp và hỗ trợ" onPress={() => Alert.alert('Trợ giúp', 'Liên hệ Chợ Mây qua hotline: 1900 6868')} />
       </View>
-      <Pressable style={styles.logout} onPress={() => void logout()}>
-        <Icon name="logout" color={C.red} size={18} />
-        <Text style={styles.logoutText}>Đăng xuất</Text>
-      </Pressable>
+      {isAuthenticated === null ? null : isAuthenticated ? (
+        <Pressable accessibilityRole="button" style={styles.logout} onPress={() => void logout()}>
+          <Icon name="logout" color={C.red} size={18} />
+          <Text style={styles.logoutText}>{"\u0110\u0103ng xu\u1ea5t"}</Text>
+        </Pressable>
+      ) : (
+        <Pressable accessibilityRole="button" style={[styles.logout, styles.login]} onPress={() => router.push('/(auth)/login')}>
+          <Icon name="login" color={C.cyan} size={18} />
+          <Text style={styles.loginText}>{"\u0110\u0103ng nh\u1eadp"}</Text>
+        </Pressable>
+      )}
     </Page>
   );
 }
@@ -86,5 +96,7 @@ const styles = StyleSheet.create({
   menu: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.line },
   logout: { marginTop: 28, borderWidth: 1, borderColor: '#F1B9B7', borderRadius: 7, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   logoutText: { fontSize: 14, color: C.red, fontWeight: '700' },
+  login: { borderColor: C.cyan },
+  loginText: { fontSize: 14, color: C.cyan, fontWeight: '700' },
   error: { color: C.red, fontSize: 13, marginBottom: 12 },
 });

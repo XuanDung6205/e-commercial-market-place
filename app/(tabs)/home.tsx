@@ -25,7 +25,7 @@ export default function HomeScreen() {
       try {
         const [categoryResult, productResult, bannerResult, userResult] = await Promise.all([
           supabase.from('categories').select('id, name').eq('is_active', true).order('sort_order').limit(10),
-          supabase.from('products').select('id, name, price, product_images(image_url)').eq('status', 'active').order('created_at', { ascending: false }).limit(10),
+          supabase.from('products').select('id, name, price, product_images(image_url)').eq('status', 'active').order('created_at', { ascending: false }).limit(100),
           supabase.from('banners').select('title, image_url').eq('is_active', true).order('sort_order').limit(1),
           supabase.auth.getSession(),
         ]);

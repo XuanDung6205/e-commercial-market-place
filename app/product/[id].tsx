@@ -190,15 +190,17 @@ export default function ProductDetailScreen() {
     setTimeout(() => setAdded(false), 1500);
   };
 
-  const handleBuyNow = async () => {
+  const handleBuyNow = () => {
     if (!product) return;
     setActionError(null);
-    const error = await addToCart(product, quantity, selectedVariant);
-    if (error) {
-      setActionError(error);
-      return;
-    }
-    router.push("/payment");
+    router.push({
+      pathname: "/payment",
+      params: {
+        buyNowProductId: product.id,
+        buyNowQuantity: String(quantity),
+        ...(selectedVariant ? { buyNowVariant: selectedVariant } : {}),
+      },
+    });
   };
 
   const handleToggleFavorite = async () => {

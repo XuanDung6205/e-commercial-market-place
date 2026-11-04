@@ -48,7 +48,6 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(admin)" />
-        <Stack.Screen name="auth/callback" />
         <Stack.Screen name="product/[id]" />
         <Stack.Screen name="cart" />
         <Stack.Screen name="payment" />
