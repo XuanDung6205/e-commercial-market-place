@@ -33,6 +33,7 @@ export default function AccountScreen() {
         error: authError,
       } = await supabase.auth.getUser();
       if (authError) throw authError;
+      setIsAuthenticated(Boolean(user));
       if (user) {
         setEmail(user.email ?? "");
         const { data, error: profileError } = await supabase
