@@ -133,7 +133,6 @@ async function getCartItems(userId: string): Promise<CartItem[]> {
 type FavoriteProductsResult = {
   ids: string[];
   products: Product[];
-  unavailableCount: number;
 };
 
 async function getFavoriteProducts(userId: string): Promise<FavoriteProductsResult> {
@@ -146,7 +145,7 @@ async function getFavoriteProducts(userId: string): Promise<FavoriteProductsResu
 
   const ids = Array.from(new Set((data ?? []).map((favorite) => favorite.product_id)));
   const products = await ProductService.getByIds(ids);
-  return { ids, products, unavailableCount: ids.length - products.length };
+  return { ids, products };
 }
 
 async function syncFavoritesForUser(userId: string | null, force = false): Promise<void> {
@@ -207,9 +206,7 @@ async function syncFavoritesForUser(userId: string | null, force = false): Promi
         favoriteIds: result.ids,
         favorites: result.products,
         favoritesLoading: false,
-        favoritesError: result.unavailableCount > 0
-          ? `${result.unavailableCount} sản phẩm yêu thích không còn hiển thị trong danh mục.`
-          : null,
+        favoritesError: null,
       };
       notify();
     } catch (error) {
@@ -335,6 +332,16 @@ async function getOrCreateCartId(userId: string): Promise<string> {
     .insert({ user_id: userId })
     .select('id')
     .single();
+  if (error?.code === '23505') {
+    // Another add-to-cart request may have created this customer's cart first.
+    const { data: concurrentCart, error: retryError } = await supabase
+      .from('carts')
+      .select('id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (retryError) throw new Error(retryError.message);
+    if (concurrentCart) return concurrentCart.id;
+  }
   if (error) throw new Error(error.message);
   return data.id;
 }
@@ -453,6 +460,11 @@ export const marketplaceStore = {
 
   // Shopping Cart Actions
   async addToCart(product: Product, quantity = 1, variant?: string): Promise<string | null> {
+    const amount = Math.floor(Number(quantity));
+    if (!Number.isSafeInteger(amount) || amount < 1) {
+      return 'Số lượng sản phẩm không hợp lệ.';
+    }
+
     try {
       const userId = await currentUserId();
       await syncCustomerData(userId);
@@ -461,6 +473,9 @@ export const marketplaceStore = {
         const label = [item.color, item.size].filter(Boolean).join(' / ');
         return variant ? label === variant : item.id === product.variants?.[0]?.id;
       });
+      if (variant && product.variants?.length && !productVariant) {
+        throw new Error('Không tìm thấy phân loại đã chọn. Vui lòng tải lại sản phẩm.');
+      }
       let existingQuery = supabase
         .from('cart_items')
         .select('id, quantity')
@@ -476,7 +491,7 @@ export const marketplaceStore = {
       if (existing) {
         const { data, error } = await supabase
           .from('cart_items')
-          .update({ quantity: existing.quantity + quantity, updated_at: new Date().toISOString() })
+          .update({ quantity: existing.quantity + amount, updated_at: new Date().toISOString() })
           .eq('id', existing.id)
           .select('id')
           .maybeSingle();
@@ -487,7 +502,7 @@ export const marketplaceStore = {
             cart_id: cartId,
             product_id: product.id,
             variant_id: productVariant?.id ?? null,
-            quantity,
+            quantity: amount,
           })
           .select('id')
           .maybeSingle();

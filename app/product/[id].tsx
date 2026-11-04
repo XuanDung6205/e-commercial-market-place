@@ -15,6 +15,7 @@ import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
 import {
+  Alert,
   ActivityIndicator,
   Image,
   Pressable,
@@ -52,6 +53,7 @@ export default function ProductDetailScreen() {
 
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
+  const [isAddingToCart, setIsAddingToCart] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Reviews state from Supabase
@@ -174,15 +176,34 @@ export default function ProductDetailScreen() {
   );
 
   const handleAddToCart = async () => {
-    if (!product) return;
+    if (!product || isAddingToCart) return;
     setActionError(null);
-    const error = await addToCart(product, quantity, selectedVariant);
-    if (error) {
-      setActionError(error);
-      return;
+    setIsAddingToCart(true);
+    try {
+      const error = await addToCart(product, quantity, selectedVariant);
+      if (error) {
+        if (error.includes("Vui lòng đăng nhập")) {
+          Alert.alert("Cần đăng nhập", error, [
+            { text: "Để sau", style: "cancel" },
+            {
+              text: "Đăng nhập",
+              onPress: () => router.push("/(auth)/login"),
+            },
+          ]);
+        } else {
+          setActionError(error);
+        }
+        return;
+      }
+      setAdded(true);
+      setTimeout(() => setAdded(false), 1500);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Không thể thêm sản phẩm vào giỏ.",
+      );
+    } finally {
+      setIsAddingToCart(false);
     }
-    setAdded(true);
-    setTimeout(() => setAdded(false), 1500);
   };
 
   const handleBuyNow = () => {
@@ -557,8 +578,13 @@ export default function ProductDetailScreen() {
         ) : null}
         <Pressable
           accessibilityRole="button"
+          disabled={isAddingToCart}
           onPress={handleAddToCart}
-          style={[styles.addCartBtn, added && styles.addCartBtnSuccess]}
+          style={[
+            styles.addCartBtn,
+            added && styles.addCartBtnSuccess,
+            isAddingToCart && styles.addCartBtnDisabled,
+          ]}
         >
           <SymbolView
             name={{
@@ -572,7 +598,11 @@ export default function ProductDetailScreen() {
           <Text
             style={[styles.addCartText, added && styles.addCartTextSuccess]}
           >
-            {added ? "Đã thêm vào giỏ" : "Thêm vào giỏ"}
+            {isAddingToCart
+              ? "Đang thêm..."
+              : added
+                ? "Đã thêm vào giỏ"
+                : "Thêm vào giỏ"}
           </Text>
         </Pressable>
 
@@ -934,6 +964,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success,
     borderColor: colors.success,
   },
+  addCartBtnDisabled: { opacity: 0.65 },
   addCartText: {
     fontSize: 14,
     fontWeight: "700",

@@ -27,12 +27,16 @@ export default function AccountScreen() {
     setError("");
     setProfile(null);
     setEmail("");
+    setIsAuthenticated(null);
+    let authStatusLoaded = false;
     try {
       const {
         data: { user },
         error: authError,
       } = await supabase.auth.getUser();
       if (authError) throw authError;
+      authStatusLoaded = true;
+      setIsAuthenticated(Boolean(user));
       if (user) {
         setEmail(user.email ?? "");
         const { data, error: profileError } = await supabase
@@ -53,6 +57,7 @@ export default function AccountScreen() {
         setProfile(null);
       }
     } catch (loadError) {
+      if (!authStatusLoaded) setIsAuthenticated(false);
       setProfile(null);
       setEmail("");
       setError(
@@ -71,11 +76,20 @@ export default function AccountScreen() {
 
   const logout = async () => {
     try {
-      await supabase.auth.signOut();
-    } catch {
-      // ignore
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) throw signOutError;
+      setIsAuthenticated(false);
+      setProfile(null);
+      setEmail("");
+      router.replace("/(auth)/login");
+    } catch (signOutError) {
+      Alert.alert(
+        "Không thể đăng xuất",
+        signOutError instanceof Error
+          ? signOutError.message
+          : "Vui lòng thử lại.",
+      );
     }
-    router.replace("/(auth)/login");
   };
 
   return (
