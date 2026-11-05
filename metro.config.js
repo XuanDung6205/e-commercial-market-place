@@ -9,7 +9,4 @@ if (!config.resolver.assetExts.includes('wasm')) {
 }
 config.resolver.sourceExts.push('svg');
 
-// Enable package.json "exports" field resolution (required for expo-sqlite/localStorage/install)
-config.resolver.unstable_enablePackageExports = true;
-
 module.exports = config;

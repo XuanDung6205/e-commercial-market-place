@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import "expo-sqlite/localStorage/install";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import "react-native-url-polyfill/auto";
 
 const DEFAULT_SUPABASE_URL = "https://ggoaesupdakpbtfeegnv.supabase.co";
@@ -27,6 +27,7 @@ if (
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
+    storage: AsyncStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
