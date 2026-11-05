@@ -1,10 +1,5 @@
-﻿import { Text, View } from 'react-native';
+import RegisterScreen from '@/src/components/auth/RegisterScreen';
 
 export default function Screen() {
-  return (
-    <View>
-      <Text>register.tsx</Text>
-    </View>
-  );
+  return <RegisterScreen />;
 }
-
