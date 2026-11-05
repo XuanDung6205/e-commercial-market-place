@@ -13,7 +13,6 @@ import {
   Modal,
   Platform,
   RefreshControl,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
@@ -23,6 +22,8 @@ import {
 } from 'react-native';
 
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { AdminBottomNav } from '@/src/components/admin/AdminBottomNav';
 
 import {
   deleteProduct,
@@ -338,7 +339,7 @@ export default function ProductManagementScreen() {
   // ==================== MAIN UI ====================
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" />
 
       {/* HEADER */}
@@ -481,65 +482,7 @@ export default function ProductManagementScreen() {
       </TouchableOpacity>
 
       {/* BOTTOM NAVIGATION */}
-
-      <View style={styles.bottomNavigation}>
-        {[
-          {
-            icon: '▦',
-            label: 'Tổng quan',
-            route: '/(admin)',
-          },
-          {
-            icon: '⬡',
-            label: 'Sản phẩm',
-            route: '/(admin)/products',
-            active: true,
-          },
-          {
-            icon: '▤',
-            label: 'Đơn hàng',
-            route: '/(admin)/orders',
-          },
-          {
-            icon: '◇',
-            label: 'Khuyến mãi',
-            route: '/(admin)/vouchers',
-          },
-          {
-            icon: '⚙',
-            label: 'Cài đặt',
-            route: '/(admin)/settings',
-          },
-        ].map((item) => (
-          <TouchableOpacity
-            key={item.label}
-            style={styles.navItem}
-            onPress={() => {
-              if (!item.active) {
-                router.push(item.route as any);
-              }
-            }}
-          >
-            <Text
-              style={[
-                styles.navIcon,
-                item.active && styles.navActive,
-              ]}
-            >
-              {item.icon}
-            </Text>
-
-            <Text
-              style={[
-                styles.navLabel,
-                item.active && styles.navActive,
-              ]}
-            >
-              {item.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <AdminBottomNav activeTab="products" />
 
       {/* FILTER MODAL */}
 

@@ -3,7 +3,13 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-export type AdminTab = 'overview' | 'products' | 'orders' | 'vouchers' | 'settings';
+export type AdminTab =
+  | 'overview'
+  | 'products'
+  | 'orders'
+  | 'vouchers'
+  | 'settings'
+  | 'reviews';
 
 type AdminBottomNavProps = {
   activeTab?: AdminTab;
@@ -40,9 +46,9 @@ const TAB_CONFIG: {
     route: '/(admin)/vouchers',
   },
   {
-    id: 'settings',
-    label: 'Cài đặt',
-    icon: 'settings-outline',
+    id: 'reviews',
+    label: 'Kiểm duyệt',
+    icon: 'shield-checkmark-outline',
     route: '/(admin)/reviews',
   },
 ];
@@ -53,7 +59,11 @@ export function AdminBottomNav({ activeTab = 'orders' }: AdminBottomNavProps) {
   return (
     <View style={styles.container}>
       {TAB_CONFIG.map((tab) => {
-        const isActive = tab.id === activeTab;
+        const isActive =
+          tab.id === activeTab ||
+          (tab.id === 'reviews' && activeTab === 'settings') ||
+          (tab.id === 'settings' && activeTab === 'reviews');
+
         return (
           <TouchableOpacity
             key={tab.id}
@@ -61,7 +71,7 @@ export function AdminBottomNav({ activeTab = 'orders' }: AdminBottomNavProps) {
             activeOpacity={0.7}
             onPress={() => {
               if (!isActive) {
-                router.push(tab.route as any);
+                router.replace(tab.route as any);
               }
             }}
           >
@@ -108,4 +118,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-

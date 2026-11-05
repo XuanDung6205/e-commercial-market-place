@@ -10,6 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../../src/services/supabase';
 import { AdminBottomNav } from '../../../src/components/admin/AdminBottomNav';
 
@@ -482,7 +483,7 @@ export default function StatisticsScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" />
 
       {/* HEADER */}
@@ -879,7 +880,7 @@ export default function StatisticsScreen() {
         </View>
       </ScrollView>
       <AdminBottomNav activeTab="overview" />
-    </View>
+    </SafeAreaView>
   );
 }
 
