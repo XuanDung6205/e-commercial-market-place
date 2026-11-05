@@ -1,4 +1,3 @@
-
 import { supabase } from '../supabase';
 
 // ==================== PRODUCT TYPE ====================
@@ -234,8 +233,14 @@ export async function addProduct(input: NewProductInput) {
 
 // ==================== DELETE PRODUCT ====================
 
-export async function deleteProduct(productId: string) {
-  // 1. Xóa ảnh sản phẩm
+export async function deleteProduct(
+  productId: string,
+): Promise<boolean> {
+  if (!productId) {
+    throw new Error('Mã sản phẩm không hợp lệ.');
+  }
+
+  // 1. Xóa ảnh trong bảng product_images
   const { error: imageError } = await supabase
     .from('product_images')
     .delete()
@@ -245,7 +250,7 @@ export async function deleteProduct(productId: string) {
     throw imageError;
   }
 
-  // 2. Xóa biến thể sản phẩm
+  // 2. Xóa biến thể trong bảng product_variants
   const { error: variantError } = await supabase
     .from('product_variants')
     .delete()
@@ -255,7 +260,7 @@ export async function deleteProduct(productId: string) {
     throw variantError;
   }
 
-  // 3. Xóa sản phẩm
+  // 3. Xóa sản phẩm trong bảng products
   const { error: productError } = await supabase
     .from('products')
     .delete()

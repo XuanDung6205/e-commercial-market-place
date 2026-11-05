@@ -1,11 +1,17 @@
-﻿
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Image,
   Modal,
+  Platform,
   RefreshControl,
   SafeAreaView,
   StatusBar,
@@ -15,6 +21,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
 import { useRouter } from 'expo-router';
 
 import {
@@ -30,42 +37,59 @@ export default function ProductManagementScreen() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('Tất cả');
-  const [selectedStatus, setSelectedStatus] = useState<StatusFilter>('all');
+  const [selectedCategory, setSelectedCategory] =
+    useState('Tất cả');
+
+  const [selectedStatus, setSelectedStatus] =
+    useState<StatusFilter>('all');
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] =
+    useState<string | null>(null);
+
   const [filterVisible, setFilterVisible] = useState(false);
 
-  // Tải sản phẩm
-  const loadProducts = useCallback(async (refresh = false) => {
-    try {
-      if (refresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+  // ==================== LOAD PRODUCTS ====================
 
-      const data = await getProducts();
-      setProducts(data);
-    } catch (error: any) {
-      console.error('Load products error:', error);
-      Alert.alert(
-        'Lỗi',
-        error?.message || 'Không thể tải danh sách sản phẩm.',
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const loadProducts = useCallback(
+    async (refresh = false) => {
+      try {
+        if (refresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        const data = await getProducts();
+
+        setProducts(data);
+      } catch (error: any) {
+        console.error('Load products error:', error);
+
+        const message =
+          error?.message ||
+          'Không thể tải danh sách sản phẩm.';
+
+        if (Platform.OS === 'web') {
+          window.alert(`Lỗi: ${message}`);
+        } else {
+          Alert.alert('Lỗi', message);
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     loadProducts();
   }, [loadProducts]);
 
-  // Lấy danh mục từ sản phẩm
+  // ==================== GET CATEGORIES ====================
+
   const categories = useMemo(() => {
     const names = Array.from(
       new Set(
@@ -73,7 +97,9 @@ export default function ProductManagementScreen() {
           .map((product) => product.category_name)
           .filter(
             (name): name is string =>
-              Boolean(name && name !== 'Chưa phân loại'),
+              Boolean(
+                name && name !== 'Chưa phân loại',
+              ),
           ),
       ),
     );
@@ -81,7 +107,8 @@ export default function ProductManagementScreen() {
     return ['Tất cả', ...names];
   }, [products]);
 
-  // Tìm kiếm và lọc
+  // ==================== SEARCH AND FILTER ====================
+
   const filteredProducts = useMemo(() => {
     const keyword = search.trim().toLowerCase();
 
@@ -101,51 +128,109 @@ export default function ProductManagementScreen() {
           ? product.status === 'active'
           : product.status !== 'active');
 
-      return matchSearch && matchCategory && matchStatus;
+      return (
+        matchSearch &&
+        matchCategory &&
+        matchStatus
+      );
     });
-  }, [products, search, selectedCategory, selectedStatus]);
+  }, [
+    products,
+    search,
+    selectedCategory,
+    selectedStatus,
+  ]);
 
-  // Định dạng giá
+  // ==================== FORMAT PRICE ====================
+
   const formatPrice = (price: number | null) => {
     return `${Number(price ?? 0).toLocaleString('vi-VN')} đ`;
   };
 
-  // Xóa sản phẩm
+  // ==================== DELETE PRODUCT ====================
+
   const handleDelete = (product: Product) => {
+    const confirmDelete = async () => {
+      try {
+        setDeletingId(product.id);
+
+        await deleteProduct(product.id);
+
+        // Cập nhật danh sách sau khi xóa thành công
+        setProducts((previous) =>
+          previous.filter(
+            (item) => item.id !== product.id,
+          ),
+        );
+
+        if (Platform.OS === 'web') {
+          window.alert('Đã xóa sản phẩm thành công.');
+        } else {
+          Alert.alert(
+            'Thành công',
+            'Đã xóa sản phẩm.',
+          );
+        }
+      } catch (error: any) {
+        console.error(
+          'Delete product error:',
+          error,
+        );
+
+        const message =
+          error?.message ||
+          'Không thể xóa sản phẩm.';
+
+        if (Platform.OS === 'web') {
+          window.alert(`Lỗi: ${message}`);
+        } else {
+          Alert.alert('Lỗi', message);
+        }
+      } finally {
+        setDeletingId(null);
+      }
+    };
+
+    // Xác nhận xóa trên Web
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        `Bạn có chắc chắn muốn xóa "${product.name}" không?`,
+      );
+
+      if (confirmed) {
+        void confirmDelete();
+      }
+
+      return;
+    }
+
+    // Xác nhận xóa trên Android / iOS
     Alert.alert(
       'Xóa sản phẩm',
       `Bạn có chắc chắn muốn xóa "${product.name}" không?`,
       [
-        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Hủy',
+          style: 'cancel',
+        },
         {
           text: 'Xóa',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              setDeletingId(product.id);
-              await deleteProduct(product.id);
-
-              setProducts((previous) =>
-                previous.filter((item) => item.id !== product.id),
-              );
-
-              Alert.alert('Thành công', 'Đã xóa sản phẩm.');
-            } catch (error: any) {
-              Alert.alert(
-                'Lỗi',
-                error?.message || 'Không thể xóa sản phẩm.',
-              );
-            } finally {
-              setDeletingId(null);
-            }
+          onPress: () => {
+            void confirmDelete();
           },
         },
       ],
     );
   };
 
-  // Card sản phẩm
-  const renderProduct = ({ item }: { item: Product }) => {
+  // ==================== PRODUCT CARD ====================
+
+  const renderProduct = ({
+    item,
+  }: {
+    item: Product;
+  }) => {
     const isActive = item.status === 'active';
 
     return (
@@ -157,13 +242,23 @@ export default function ProductManagementScreen() {
             resizeMode="cover"
           />
         ) : (
-          <View style={[styles.productImage, styles.imagePlaceholder]}>
-            <Text style={styles.placeholderIcon}>📦</Text>
+          <View
+            style={[
+              styles.productImage,
+              styles.imagePlaceholder,
+            ]}
+          >
+            <Text style={styles.placeholderIcon}>
+              📦
+            </Text>
           </View>
         )}
 
         <View style={styles.productInfo}>
-          <Text style={styles.productName} numberOfLines={1}>
+          <Text
+            style={styles.productName}
+            numberOfLines={1}
+          >
             {item.name || 'Chưa có tên'}
           </Text>
 
@@ -179,43 +274,60 @@ export default function ProductManagementScreen() {
             <View
               style={[
                 styles.statusBadge,
-                isActive ? styles.activeBadge : styles.hiddenBadge,
+                isActive
+                  ? styles.activeBadge
+                  : styles.hiddenBadge,
               ]}
             >
               <Text
                 style={[
                   styles.statusText,
-                  isActive ? styles.activeText : styles.hiddenText,
+                  isActive
+                    ? styles.activeText
+                    : styles.hiddenText,
                 ]}
               >
-                {isActive ? 'Còn hàng' : 'Đã ẩn'}
+                {isActive
+                  ? 'Còn hàng'
+                  : 'Đã ẩn'}
               </Text>
             </View>
           </View>
         </View>
 
         <View style={styles.actions}>
+          {/* SỬA */}
           <TouchableOpacity
             style={styles.editAction}
             onPress={() =>
               router.push({
                 pathname: '/(admin)/products/edit',
-                params: { id: item.id },
+                params: {
+                  productId: item.id,
+                },
               })
             }
           >
-            <Text style={styles.editIcon}>✎</Text>
+            <Text style={styles.editIcon}>
+              ✎
+            </Text>
           </TouchableOpacity>
 
+          {/* XÓA */}
           <TouchableOpacity
             style={styles.deleteAction}
             disabled={deletingId === item.id}
             onPress={() => handleDelete(item)}
           >
             {deletingId === item.id ? (
-              <ActivityIndicator size="small" color="#E64B4B" />
+              <ActivityIndicator
+                size="small"
+                color="#E64B4B"
+              />
             ) : (
-              <Text style={styles.deleteIcon}>▤</Text>
+              <Text style={styles.deleteIcon}>
+                ▤
+              </Text>
             )}
           </TouchableOpacity>
         </View>
@@ -223,19 +335,27 @@ export default function ProductManagementScreen() {
     );
   };
 
+  // ==================== MAIN UI ====================
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
       {/* HEADER */}
+
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Quản lý sản phẩm</Text>
+        <Text style={styles.headerTitle}>
+          Quản lý sản phẩm
+        </Text>
       </View>
 
-      {/* TÌM KIẾM */}
+      {/* SEARCH */}
+
       <View style={styles.searchRow}>
         <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>⌕</Text>
+          <Text style={styles.searchIcon}>
+            ⌕
+          </Text>
 
           <TextInput
             style={styles.searchInput}
@@ -250,12 +370,18 @@ export default function ProductManagementScreen() {
           style={styles.filterIconButton}
           onPress={() => setFilterVisible(true)}
         >
-          <Text style={styles.filterIcon}>☷</Text>
-          {selectedStatus !== 'all' && <View style={styles.filterDot} />}
+          <Text style={styles.filterIcon}>
+            ☷
+          </Text>
+
+          {selectedStatus !== 'all' && (
+            <View style={styles.filterDot} />
+          )}
         </TouchableOpacity>
       </View>
 
-      {/* DANH MỤC - ĐÃ SỬA LỖI KÉO GIÃN */}
+      {/* CATEGORY */}
+
       <FlatList
         horizontal
         data={categories}
@@ -265,10 +391,13 @@ export default function ProductManagementScreen() {
         contentContainerStyle={styles.categoryList}
         renderItem={({ item }) => (
           <TouchableOpacity
-            onPress={() => setSelectedCategory(item)}
+            onPress={() =>
+              setSelectedCategory(item)
+            }
             style={[
               styles.categoryChip,
-              selectedCategory === item && styles.categoryChipActive,
+              selectedCategory === item &&
+                styles.categoryChipActive,
             ]}
           >
             <Text
@@ -284,22 +413,32 @@ export default function ProductManagementScreen() {
         )}
       />
 
-      {/* SỐ LƯỢNG SẢN PHẨM */}
+      {/* PRODUCT COUNT */}
+
       <View style={styles.listHeader}>
         <Text style={styles.productCount}>
           {filteredProducts.length} sản phẩm
         </Text>
 
         <TouchableOpacity>
-          <Text style={styles.sortText}>Mới nhất ↓</Text>
+          <Text style={styles.sortText}>
+            Mới nhất ↓
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* DANH SÁCH */}
+      {/* PRODUCT LIST */}
+
       {loading ? (
         <View style={styles.loading}>
-          <ActivityIndicator size="large" color="#00B8C8" />
-          <Text style={styles.loadingText}>Đang tải sản phẩm...</Text>
+          <ActivityIndicator
+            size="large"
+            color="#00B8C8"
+          />
+
+          <Text style={styles.loadingText}>
+            Đang tải sản phẩm...
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -316,7 +455,10 @@ export default function ProductManagementScreen() {
           }
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>📦</Text>
+              <Text style={styles.emptyIcon}>
+                📦
+              </Text>
+
               <Text style={styles.emptyText}>
                 Không tìm thấy sản phẩm
               </Text>
@@ -325,33 +467,57 @@ export default function ProductManagementScreen() {
         />
       )}
 
-      {/* NÚT THÊM */}
+      {/* ADD PRODUCT BUTTON */}
+
       <TouchableOpacity
         style={styles.floatingButton}
-        onPress={() => router.push('/(admin)/products/add')}
+        onPress={() =>
+          router.push('/(admin)/products/add')
+        }
       >
-        <Text style={styles.floatingButtonText}>＋</Text>
+        <Text style={styles.floatingButtonText}>
+          ＋
+        </Text>
       </TouchableOpacity>
 
       {/* BOTTOM NAVIGATION */}
+
       <View style={styles.bottomNavigation}>
         {[
-          { icon: '▦', label: 'Tổng quan', route: '/(admin)' },
+          {
+            icon: '▦',
+            label: 'Tổng quan',
+            route: '/(admin)',
+          },
           {
             icon: '⬡',
             label: 'Sản phẩm',
             route: '/(admin)/products',
             active: true,
           },
-          { icon: '▤', label: 'Đơn hàng', route: '/(admin)/orders' },
-          { icon: '◇', label: 'Khuyến mãi', route: '/(admin)/vouchers' },
-          { icon: '⚙', label: 'Cài đặt', route: '/(admin)/settings' },
+          {
+            icon: '▤',
+            label: 'Đơn hàng',
+            route: '/(admin)/orders',
+          },
+          {
+            icon: '◇',
+            label: 'Khuyến mãi',
+            route: '/(admin)/vouchers',
+          },
+          {
+            icon: '⚙',
+            label: 'Cài đặt',
+            route: '/(admin)/settings',
+          },
         ].map((item) => (
           <TouchableOpacity
             key={item.label}
             style={styles.navItem}
             onPress={() => {
-              if (!item.active) router.push(item.route as any);
+              if (!item.active) {
+                router.push(item.route as any);
+              }
             }}
           >
             <Text
@@ -375,17 +541,22 @@ export default function ProductManagementScreen() {
         ))}
       </View>
 
-      {/* POPUP LỌC */}
+      {/* FILTER MODAL */}
+
       <Modal
         visible={filterVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setFilterVisible(false)}
+        onRequestClose={() =>
+          setFilterVisible(false)
+        }
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setFilterVisible(false)}
+          onPress={() =>
+            setFilterVisible(false)
+          }
         >
           <TouchableOpacity
             activeOpacity={1}
@@ -393,12 +564,18 @@ export default function ProductManagementScreen() {
             onPress={() => {}}
           >
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Lọc sản phẩm</Text>
+              <Text style={styles.modalTitle}>
+                Lọc sản phẩm
+              </Text>
 
               <TouchableOpacity
-                onPress={() => setFilterVisible(false)}
+                onPress={() =>
+                  setFilterVisible(false)
+                }
               >
-                <Text style={styles.closeModal}>✕</Text>
+                <Text style={styles.closeModal}>
+                  ✕
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -407,15 +584,26 @@ export default function ProductManagementScreen() {
             </Text>
 
             {[
-              { value: 'all', label: 'Tất cả' },
-              { value: 'active', label: 'Đang bán' },
-              { value: 'hidden', label: 'Đã ẩn' },
+              {
+                value: 'all',
+                label: 'Tất cả',
+              },
+              {
+                value: 'active',
+                label: 'Đang bán',
+              },
+              {
+                value: 'hidden',
+                label: 'Đã ẩn',
+              },
             ].map((item) => (
               <TouchableOpacity
                 key={item.value}
                 style={styles.filterOption}
                 onPress={() =>
-                  setSelectedStatus(item.value as StatusFilter)
+                  setSelectedStatus(
+                    item.value as StatusFilter,
+                  )
                 }
               >
                 <Text
@@ -430,7 +618,9 @@ export default function ProductManagementScreen() {
 
                 <View style={styles.radioOuter}>
                   {selectedStatus === item.value && (
-                    <View style={styles.radioInner} />
+                    <View
+                      style={styles.radioInner}
+                    />
                   )}
                 </View>
               </TouchableOpacity>
@@ -444,14 +634,24 @@ export default function ProductManagementScreen() {
                   setSelectedCategory('Tất cả');
                 }}
               >
-                <Text style={styles.resetButtonText}>Đặt lại</Text>
+                <Text
+                  style={styles.resetButtonText}
+                >
+                  Đặt lại
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.applyButton}
-                onPress={() => setFilterVisible(false)}
+                onPress={() =>
+                  setFilterVisible(false)
+                }
               >
-                <Text style={styles.applyButtonText}>Áp dụng</Text>
+                <Text
+                  style={styles.applyButtonText}
+                >
+                  Áp dụng
+                </Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -460,6 +660,8 @@ export default function ProductManagementScreen() {
     </SafeAreaView>
   );
 }
+
+// ==================== STYLES ====================
 
 const styles = StyleSheet.create({
   container: {
@@ -476,6 +678,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
   },
+
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -490,6 +693,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     gap: 9,
   },
+
   searchBox: {
     flex: 1,
     height: 39,
@@ -499,27 +703,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 10,
   },
+
   searchIcon: {
     fontSize: 23,
     color: '#A0A0A0',
     marginRight: 7,
   },
+
   searchInput: {
     flex: 1,
     fontSize: 12,
     color: '#333333',
     paddingVertical: 0,
   },
+
   filterIconButton: {
     width: 35,
     height: 39,
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   filterIcon: {
     fontSize: 23,
     color: '#00B8C8',
   },
+
   filterDot: {
     position: 'absolute',
     width: 7,
@@ -537,11 +746,13 @@ const styles = StyleSheet.create({
     height: 43,
     marginTop: 9,
   },
+
   categoryList: {
     paddingHorizontal: 17,
     alignItems: 'center',
     gap: 7,
   },
+
   categoryChip: {
     backgroundColor: '#EDEFF2',
     borderRadius: 8,
@@ -549,13 +760,16 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     alignSelf: 'center',
   },
+
   categoryChipActive: {
     backgroundColor: '#DDF8F8',
   },
+
   categoryChipText: {
     fontSize: 11,
     color: '#777777',
   },
+
   categoryChipTextActive: {
     color: '#00AEBE',
     fontWeight: '700',
@@ -568,10 +782,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+
   productCount: {
     fontSize: 11,
     color: '#999999',
   },
+
   sortText: {
     fontSize: 11,
     color: '#00B8C8',
@@ -583,6 +799,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingBottom: 95,
   },
+
   productCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
@@ -593,86 +810,105 @@ const styles = StyleSheet.create({
     minHeight: 77,
     gap: 9,
   },
+
   productImage: {
     width: 49,
     height: 54,
     borderRadius: 7,
     backgroundColor: '#F0F2F3',
   },
+
   imagePlaceholder: {
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   placeholderIcon: {
     fontSize: 21,
   },
+
   productInfo: {
     flex: 1,
     justifyContent: 'center',
     gap: 3,
   },
+
   productName: {
     color: '#333333',
     fontSize: 11,
     fontWeight: '600',
   },
+
   productPrice: {
     color: '#00AFC0',
     fontSize: 11,
     fontWeight: '700',
   },
+
   productMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
   },
+
   stockText: {
     color: '#999999',
     fontSize: 9,
   },
+
   statusBadge: {
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 4,
   },
+
   activeBadge: {
     backgroundColor: '#E2F8EC',
   },
+
   hiddenBadge: {
     backgroundColor: '#FDE8E8',
   },
+
   statusText: {
     fontSize: 8,
     fontWeight: '600',
   },
+
   activeText: {
     color: '#21A45B',
   },
+
   hiddenText: {
     color: '#DC5555',
   },
+
   actions: {
     alignItems: 'center',
     justifyContent: 'space-between',
     height: 48,
     width: 22,
   },
+
   editAction: {
     width: 22,
     height: 21,
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   editIcon: {
     color: '#AAAAAA',
     fontSize: 17,
   },
+
   deleteAction: {
     width: 22,
     height: 21,
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   deleteIcon: {
     color: '#E65A5A',
     fontSize: 15,
@@ -684,18 +920,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   loadingText: {
     marginTop: 9,
     color: '#888888',
     fontSize: 12,
   },
+
   empty: {
     alignItems: 'center',
     paddingTop: 55,
   },
+
   emptyIcon: {
     fontSize: 35,
   },
+
   emptyText: {
     marginTop: 10,
     color: '#888888',
@@ -716,6 +956,7 @@ const styles = StyleSheet.create({
     elevation: 5,
     zIndex: 10,
   },
+
   floatingButtonText: {
     color: '#FFFFFF',
     fontSize: 29,
@@ -734,20 +975,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 3,
   },
+
   navItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
   },
+
   navIcon: {
     fontSize: 17,
     color: '#AEB4BD',
   },
+
   navLabel: {
     fontSize: 9,
     color: '#AEB4BD',
   },
+
   navActive: {
     color: '#00B8C8',
     fontWeight: '700',
@@ -760,32 +1005,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 25,
   },
+
   filterModal: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
   },
+
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 22,
   },
+
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#222222',
   },
+
   closeModal: {
     fontSize: 20,
     color: '#888888',
   },
+
   filterTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#444444',
     marginBottom: 10,
   },
+
   filterOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -794,14 +1045,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F1F1F1',
   },
+
   filterOptionText: {
     fontSize: 14,
     color: '#666666',
   },
+
   filterOptionSelected: {
     color: '#00B8C8',
     fontWeight: '700',
   },
+
   radioOuter: {
     width: 19,
     height: 19,
@@ -811,17 +1065,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   radioInner: {
     width: 10,
     height: 10,
     borderRadius: 5,
     backgroundColor: '#00B8C8',
   },
+
   modalButtons: {
     flexDirection: 'row',
     gap: 10,
     marginTop: 22,
   },
+
   resetButton: {
     flex: 1,
     padding: 12,
@@ -829,10 +1086,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0F1F3',
     alignItems: 'center',
   },
+
   resetButtonText: {
     color: '#555555',
     fontWeight: '600',
   },
+
   applyButton: {
     flex: 1,
     padding: 12,
@@ -840,6 +1099,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#00B8C8',
     alignItems: 'center',
   },
+
   applyButtonText: {
     color: '#FFFFFF',
     fontWeight: '700',
